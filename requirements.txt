@@ -1,0 +1,7 @@
+# Satellite propagation and numerical computation dependencies
+sgp4==2.24
+numpy>=1.26.0,<2.0.0
+pandas==2.2.1
+requests==2.31.0
+matplotlib==3.8.4
+pillow==11.1.0  # For image processing 
