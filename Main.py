@@ -1,43 +1,65 @@
-from sgp4.api import Satrec
-from sgp4.api import WGS72
+import orekit
+from orekit.pyhelpers import setup_orekit_curdir
+from org.orekit.propagation.analytical.tle import TLE, TLEPropagator
+from org.orekit.time import AbsoluteDate, TimeScalesFactory
+from org.orekit.utils import PVCoordinates
+from org.orekit.frames import FramesFactory
 from datetime import datetime, timedelta
-from numpy import radians
-from sgp4.conveniences import sat_epoch_datetime
+from org.orekit.bodies import OneAxisEllipsoid
+from org.orekit.utils import IERSConventions
 
-# Function to propagate TLE for a given number of days
-def propagate_tle(tle_line1, tle_line2, days, step=60):
+# Initialize Orekit VM
+orekit.initVM()
+setup_orekit_curdir("C:\Orekit\orekit-data-main\orekit-data-main")
+
+
+def propagate_tle_orekit(tle_line1, tle_line2, days, step=60):  # Using 6-sec step for accuracy
     """
-    Propagates the TLE data for the given number of days.
+    Propagates the TLE using Orekit's SGP4 propagator and converts to TEME of Date.
     :param tle_line1: First line of TLE
     :param tle_line2: Second line of TLE
     :param days: Number of days to propagate
-    :param step: Time step in seconds (default: 60 seconds)
+    :param step: Time step in seconds (default: 6 seconds)
     :return: List of propagated state vectors (time, x, y, z, vx, vy, vz)
     """
-    satellite = Satrec.twoline2rv(tle_line1, tle_line2, WGS72)
-    epoch = sat_epoch_datetime(satellite)
+    tle = TLE(tle_line1, tle_line2)
+    propagator = TLEPropagator.selectExtrapolator(tle)  # Uses SGP4 or SDP4 based on orbital period
+    epoch = tle.getDate()
     
+    print(f"Epoch from TLE: {epoch}")  # Debugging step
+
     propagated_data = []
     
-    for t in range(0, days * 86400, step):  # Convert days to seconds
-        propagation_time = epoch + timedelta(seconds=t)
-        jd, fr = propagation_time.timetuple().tm_yday + 2451545, propagation_time.hour/24.0
-        e, r, v = satellite.sgp4(jd, fr)
+    # Define the ITRF frame for transformations (used to handle Earth's rotation)
+    itrf_frame = FramesFactory.getITRF(IERSConventions.IERS_2010, False)
+    
+    for t in range(0, days * 86400, step):
+        propagation_time = epoch.shiftedBy(float(t))
+        state = propagator.propagate(propagation_time)
+        pv = state.getPVCoordinates(FramesFactory.getTEME())  # State vector in TEME of Epoch
         
-        if e == 0:  # Check for propagation errors
-            propagated_data.append((propagation_time, *r, *v))
-        else:
-            print(f"Propagation error at time {propagation_time}")
+        # Convert the state vector to TEME of Date
+        teme_of_date = FramesFactory.getTEME().getTransformTo(itrf_frame, propagation_time)
+        pv_teme_date = teme_of_date.transformPVCoordinates(pv)  # Transform to TEME of Date
+        
+        position = pv_teme_date.getPosition()
+        velocity = pv_teme_date.getVelocity()
+        
+        propagated_data.append((
+            propagation_time.toString(), 
+            position.getX() / 1000.0, position.getY() / 1000.0, position.getZ() / 1000.0,  # Convert meters to km
+            velocity.getX() / 1000.0, velocity.getY() / 1000.0, velocity.getZ() / 1000.0   # Convert m/s to km/s
+        ))
     
     return propagated_data
 
 # Example usage
 if __name__ == "__main__":
-    tle_line1 = "1 25544U 98067A   24085.54791667  .00001264  00000-0  32228-4 0  9991"
-    tle_line2 = "2 25544  51.6441  37.4421 0005611  34.1196 326.0046 15.49819063501310"
+    tle_line1 = "1 00005U 58002B   00179.78495062 +.00000023 +00000-0 +28098-4 0  4753"
+    tle_line2 = "2 00005  034.2682 348.7242 1859667 331.7664 019.3264 10.82419157413667"
     
     days = int(input("Enter the number of days to propagate: "))
-    results = propagate_tle(tle_line1, tle_line2, days)
+    results = propagate_tle_orekit(tle_line1, tle_line2, days)
     
     print("Time (UTC), X (km), Y (km), Z (km), VX (km/s), VY (km/s), VZ (km/s)")
     for entry in results:
