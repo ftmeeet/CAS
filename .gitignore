@@ -25,6 +25,10 @@ venv/
 env/
 ENV/
 
+*.csv
+test_data.csv
+train_data.csv
+
 # IDE
 .idea/
 .vscode/
