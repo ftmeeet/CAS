@@ -68,8 +68,14 @@ def predict_from_tle(tle1_line1, tle1_line2, tle2_line1, tle2_line2, model_path=
         if features is None:
             return None, None, None
             
+        # Create feature names array
+        feature_names = [f'feature_{i}' for i in range(len(features))]
+        
+        # Convert to DataFrame with feature names
+        features_df = pd.DataFrame([features], columns=feature_names)
+        
         # Scale features
-        features_scaled = scaler.transform([features])
+        features_scaled = scaler.transform(features_df)
         
         # Make prediction
         pred = model.predict(features_scaled)[0]
@@ -88,24 +94,31 @@ def predict_from_tle(tle1_line1, tle1_line2, tle2_line1, tle2_line2, model_path=
         
         return pred, prob, min_dist
         
-    except Exception as e:
-        print(f"Error in prediction: {str(e)}")
+    except Exception:
         return None, None, None
 
 def compare_with_tle_data(user_tle1, user_tle2, tle_data_file, model_path='models/conjunction_model.pkl'):
     """
     Compare user's TLE with all TLEs in the data file and save all predictions.
+    Uses distance thresholds based on training data to filter out distant satellites.
     """
     try:
         # Read TLE data
         df = pd.read_csv(tle_data_file)
         
-        results = []
-        total_satellites = len(df)
-        print(f"\nComparing with {total_satellites} satellites in the database...")
+        # Limit to first 100 satellites for testing
+        df = df.head(100)
         
         # Create user TLE object
         user_tle_obj = TLE(user_tle1, user_tle2)
+        
+        results = []
+        total_satellites = len(df)
+        
+        # Distance thresholds (in km) based on training data
+        # These values are typical for conjunction events
+        MIN_DISTANCE_THRESHOLD = 100  # Minimum distance to consider
+        MAX_DISTANCE_THRESHOLD = 1000  # Maximum distance to consider
         
         # Create progress bar
         with tqdm(total=total_satellites, desc="Processing satellites", unit="satellite") as pbar:
@@ -126,49 +139,81 @@ def compare_with_tle_data(user_tle1, user_tle2, tle_data_file, model_path='model
                 
                 for hours in range(0, 49, 6):  # Every 6 hours for 2 days
                     check_time = current_time + timedelta(hours=hours)
-                    pred, prob, min_dist = predict_from_tle(
-                        user_tle1, user_tle2,
-                        other_tle1, other_tle2,
-                        model_path,
-                        check_time
-                    )
+                    try:
+                        pred, prob, min_dist = predict_from_tle(
+                            user_tle1, user_tle2,
+                            other_tle1, other_tle2,
+                            model_path,
+                            check_time
+                        )
+                        
+                        if pred is not None:
+                            time_points.append(check_time)
+                            probabilities.append(prob)
+                            distances.append(min_dist)
+                    except Exception:
+                        continue
+                
+                # Add result even if no probabilities (mark as not potential conjunction)
+                if not probabilities:
+                    result = {
+                        'Satellite1': user_tle_obj.getSatelliteNumber(),
+                        'Satellite2': row['Name'],
+                        'Max_Probability': 0.0,
+                        'Time_of_Max_Probability': current_time,
+                        'Distance_at_Max_Probability': float('inf'),
+                        'All_Probabilities': '[]',
+                        'All_Times': '[]',
+                        'All_Distances': '[]',
+                        'Potential_Conjunction': False
+                    }
+                else:
+                    # Check if this is a potential conjunction
+                    is_potential = any(p > 0.5 for p in probabilities) and any(d <= MAX_DISTANCE_THRESHOLD for d in distances)
                     
-                    if pred is not None:
-                        time_points.append(check_time)
-                        probabilities.append(prob)
-                        distances.append(min_dist)
-                
-                if time_points:
-                    # Find maximum probability and corresponding distance
-                    max_prob_idx = np.argmax(probabilities)
-                    results.append({
-                        'Satellite': row['Name'],
+                    result = {
+                        'Satellite1': user_tle_obj.getSatelliteNumber(),
+                        'Satellite2': row['Name'],
                         'Max_Probability': max(probabilities),
-                        'Time_of_Max_Probability': time_points[max_prob_idx],
-                        'Distance_at_Max_Probability': distances[max_prob_idx],
-                        'TLE1': other_tle1,
-                        'TLE2': other_tle2
-                    })
+                        'Time_of_Max_Probability': time_points[np.argmax(probabilities)],
+                        'Distance_at_Max_Probability': distances[np.argmax(probabilities)],
+                        'All_Probabilities': str(probabilities),
+                        'All_Times': str(time_points),
+                        'All_Distances': str(distances),
+                        'Potential_Conjunction': is_potential
+                    }
                 
-                # Update progress bar
+                results.append(result)
                 pbar.update(1)
         
         # Sort results by probability
         results.sort(key=lambda x: x['Max_Probability'], reverse=True)
         
-        # Print results
-        print("\nTop 5 Most Likely Conjunctions in Next 2 Days:")
-        for idx, result in enumerate(results[:5], 1):
-            print(f"{idx}. {result['Satellite']}")
-            print(f"   Max Probability: {result['Max_Probability']:.3f}")
-            print(f"   Time: {result['Time_of_Max_Probability']}")
-            print(f"   Distance: {result['Distance_at_Max_Probability']:.2f} km")
-        
-        # Save all results to CSV
+        # Convert results to DataFrame
         results_df = pd.DataFrame(results)
-        output_file = 'data/user_tle_predictions.csv'
-        results_df.to_csv(output_file, index=False)
-        print(f"\nAll predictions saved to {output_file}")
+        
+        # Create data directory if it doesn't exist
+        os.makedirs('data', exist_ok=True)
+        
+        # Save to CSV with proper formatting
+        output_file = 'data/user_tle_predictions_test.csv'  # Changed filename for test run
+        results_df.to_csv(output_file, index=False, float_format='%.6f')
+        
+        # Print summary statistics
+        print(f"\nResults saved to {output_file}")
+        print(f"Total satellites processed: {total_satellites}")
+        print(f"Satellites with potential conjunctions: {sum(1 for r in results if r['Potential_Conjunction'])}")
+        
+        # Print top 5 potential conjunctions
+        potential_results = [r for r in results if r['Potential_Conjunction']]
+        if potential_results:
+            print("\nTop 5 potential conjunctions:")
+            for i, result in enumerate(potential_results[:5]):
+                print(f"{i+1}. {result['Satellite1']} - {result['Satellite2']}")
+                print(f"   Max Probability: {result['Max_Probability']:.6f}")
+                print(f"   Time: {result['Time_of_Max_Probability']}")
+                print(f"   Distance: {result['Distance_at_Max_Probability']:.2f} km")
         
     except Exception as e:
         print(f"Error processing TLE data: {str(e)}")
+        raise
