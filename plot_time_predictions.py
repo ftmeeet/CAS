@@ -4,7 +4,6 @@ import seaborn as sns
 import numpy as np
 from datetime import datetime
 import ast
-import json
 
 def plot_time_predictions(predictions_file='data/predictions_with_time.csv'):
     """
@@ -18,27 +17,9 @@ def plot_time_predictions(predictions_file='data/predictions_with_time.csv'):
         df = pd.read_csv(predictions_file)
         
         # Convert string lists to actual lists
-        def safe_convert(x):
-            try:
-                # First try json.loads
-                return json.loads(x.replace("'", '"'))
-            except:
-                try:
-                    # Then try ast.literal_eval
-                    return ast.literal_eval(x)
-                except:
-                    return []
-        
-        df['All_Times'] = df['All_Times'].apply(safe_convert)
-        df['All_Probabilities'] = df['All_Probabilities'].apply(safe_convert)
-        df['All_Distances'] = df['All_Distances'].apply(safe_convert)
-        
-        # Filter out any rows with empty lists
-        df = df[df['All_Times'].apply(len) > 0]
-        
-        if len(df) == 0:
-            print("No valid data to plot")
-            return
+        df['All_Times'] = df['All_Times'].apply(ast.literal_eval)
+        df['All_Probabilities'] = df['All_Probabilities'].apply(ast.literal_eval)
+        df['All_Distances'] = df['All_Distances'].apply(ast.literal_eval)
         
         # Get top 5 pairs
         top_5 = df.nlargest(5, 'Max_Probability')
@@ -48,14 +29,10 @@ def plot_time_predictions(predictions_file='data/predictions_with_time.csv'):
         
         # Plot 1: Probability over time
         for idx, row in top_5.iterrows():
-            try:
-                times = [datetime.strptime(str(t), '%Y-%m-%d %H:%M:%S') for t in row['All_Times']]
-                ax1.plot(times, row['All_Probabilities'], 
-                        label=f"{row['Satellite1']} - {row['Satellite2']}",
-                        marker='o')
-            except Exception as e:
-                print(f"Error plotting pair {row['Satellite1']} - {row['Satellite2']}: {e}")
-                continue
+            times = [datetime.strptime(t, '%Y-%m-%d %H:%M:%S') for t in row['All_Times']]
+            ax1.plot(times, row['All_Probabilities'], 
+                    label=f"{row['Satellite1']} - {row['Satellite2']}",
+                    marker='o')
         
         ax1.set_title('Conjunction Probability Over Time (Top 5 Pairs)')
         ax1.set_xlabel('Time')
@@ -66,13 +43,10 @@ def plot_time_predictions(predictions_file='data/predictions_with_time.csv'):
         
         # Plot 2: Distance over time
         for idx, row in top_5.iterrows():
-            try:
-                times = [datetime.strptime(str(t), '%Y-%m-%d %H:%M:%S') for t in row['All_Times']]
-                ax2.plot(times, row['All_Distances'], 
-                        label=f"{row['Satellite1']} - {row['Satellite2']}",
-                        marker='o')
-            except Exception as e:
-                continue
+            times = [datetime.strptime(t, '%Y-%m-%d %H:%M:%S') for t in row['All_Times']]
+            ax2.plot(times, row['All_Distances'], 
+                    label=f"{row['Satellite1']} - {row['Satellite2']}",
+                    marker='o')
         
         ax2.set_title('Minimum Distance Over Time (Top 5 Pairs)')
         ax2.set_xlabel('Time')
@@ -89,15 +63,12 @@ def plot_time_predictions(predictions_file='data/predictions_with_time.csv'):
         # Print summary for top pairs
         print("\nSummary of Top 5 Pairs:")
         for idx, row in top_5.iterrows():
-            try:
-                print(f"\n{row['Satellite1']} - {row['Satellite2']}")
-                print(f"Maximum Probability: {row['Max_Probability']:.3f}")
-                print(f"Time of Maximum Probability: {row['Time_of_Max_Probability']}")
-                print(f"Distance at Maximum Probability: {row['Distance_at_Max_Probability']:.2f} km")
-                print(f"Probability Range: {min(row['All_Probabilities']):.3f} - {max(row['All_Probabilities']):.3f}")
-                print(f"Distance Range: {min(row['All_Distances']):.2f} - {max(row['All_Distances']):.2f} km")
-            except Exception as e:
-                print(f"Error processing pair {row['Satellite1']} - {row['Satellite2']}: {e}")
+            print(f"\n{row['Satellite1']} - {row['Satellite2']}")
+            print(f"Maximum Probability: {row['Max_Probability']:.3f}")
+            print(f"Time of Maximum Probability: {row['Time_of_Max_Probability']}")
+            print(f"Distance at Maximum Probability: {row['Distance_at_Max_Probability']:.2f} km")
+            print(f"Probability Range: {min(row['All_Probabilities']):.3f} - {max(row['All_Probabilities']):.3f}")
+            print(f"Distance Range: {min(row['All_Distances']):.2f} - {max(row['All_Distances']):.2f} km")
         
     except Exception as e:
         print(f"Error plotting predictions: {e}")

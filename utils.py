@@ -5,6 +5,7 @@ from org.orekit.frames import FramesFactory
 from org.orekit.time import AbsoluteDate, TimeScalesFactory
 from org.orekit.propagation.analytical.tle import TLE, TLEPropagator
 from org.hipparchus.geometry.euclidean.threed import Vector3D
+from org.orekit.orbits import KeplerianOrbit
 import datetime
 import math
 
@@ -18,15 +19,13 @@ def create_propagator(tle_line1, tle_line2):
 
 def extract_features_from_tles(tle1_line1, tle1_line2, tle2_line1, tle2_line2):
     """
-    Extract features from two TLEs that match the training data format using Orekit.
+    Extract essential features from two TLEs for conjunction prediction.
     Returns a list of features in the same order as the training data.
     """
     try:
-        # Create Orekit TLE objects and propagators
+        # Create Orekit TLE objects
         tle1 = TLE(tle1_line1, tle1_line2)
         tle2 = TLE(tle2_line1, tle2_line2)
-        propagator1 = TLEPropagator.selectExtrapolator(tle1)
-        propagator2 = TLEPropagator.selectExtrapolator(tle2)
         
         # Get current time
         utc = TimeScalesFactory.getUTC()
@@ -34,12 +33,40 @@ def extract_features_from_tles(tle1_line1, tle1_line2, tle2_line1, tle2_line2):
         current_date = AbsoluteDate(now.year, now.month, now.day, 
                                   now.hour, now.minute, float(now.second), utc)
         
-        # Find closest approach
-        min_dist, best_time = propagate_and_find_closest(tle1, tle2, current_date)
+        # Create propagators
+        propagator1 = TLEPropagator.selectExtrapolator(tle1)
+        propagator2 = TLEPropagator.selectExtrapolator(tle2)
         
         # Propagate to current time
         state1 = propagator1.propagate(current_date)
         state2 = propagator2.propagate(current_date)
+        
+        # Convert to Keplerian orbits
+        orbit1 = KeplerianOrbit(state1.getPVCoordinates(), FramesFactory.getTEME(), current_date, state1.getMu())
+        orbit2 = KeplerianOrbit(state2.getPVCoordinates(), FramesFactory.getTEME(), current_date, state2.getMu())
+        
+        # Extract basic orbital elements
+        a1 = orbit1.getA() / 1000.0  # Convert to km
+        e1 = orbit1.getE()
+        i1 = np.degrees(orbit1.getI())
+        raan1 = np.degrees(orbit1.getRightAscensionOfAscendingNode())
+        pa1 = np.degrees(orbit1.getPerigeeArgument())
+        ma1 = np.degrees(orbit1.getMeanAnomaly())
+        
+        a2 = orbit2.getA() / 1000.0
+        e2 = orbit2.getE()
+        i2 = np.degrees(orbit2.getI())
+        raan2 = np.degrees(orbit2.getRightAscensionOfAscendingNode())
+        pa2 = np.degrees(orbit2.getPerigeeArgument())
+        ma2 = np.degrees(orbit2.getMeanAnomaly())
+        
+        # Calculate relative orbital elements
+        da = abs(a1 - a2)
+        de = abs(e1 - e2)
+        di = abs(i1 - i2)
+        draan = abs(raan1 - raan2)
+        dpa = abs(pa1 - pa2)
+        dma = abs(ma1 - ma2)
         
         # Get position and velocity vectors
         pv1 = state1.getPVCoordinates(FramesFactory.getTEME())
@@ -55,143 +82,46 @@ def extract_features_from_tles(tle1_line1, tle1_line2, tle2_line1, tle2_line2):
         r_rel = r2 - r1
         v_rel = v2 - v1
         
-        # Get orbital elements from Orekit
-        orbit1 = state1.getOrbit()
-        orbit2 = state2.getOrbit()
-        
-        # Extract orbital elements
-        a1 = orbit1.getA() / 1000.0  # Convert to km
-        e1 = orbit1.getE()
-        i1 = np.degrees(orbit1.getI())
-        raan1 = np.degrees(orbit1.getRightAscensionOfAscendingNode())
-        pa1 = np.degrees(orbit1.getPerigeeArgument())
-        ma1 = np.degrees(orbit1.getMeanAnomaly())
-        
-        a2 = orbit2.getA() / 1000.0  # Convert to km
-        e2 = orbit2.getE()
-        i2 = np.degrees(orbit2.getI())
-        raan2 = np.degrees(orbit2.getRightAscensionOfAscendingNode())
-        pa2 = np.degrees(orbit2.getPerigeeArgument())
-        ma2 = np.degrees(orbit2.getMeanAnomaly())
-        
-        # Calculate miss distance and relative speed
+        # Calculate distances and speeds
         miss_distance = np.linalg.norm(r_rel) / 1000.0  # Convert to km
         relative_speed = np.linalg.norm(v_rel) / 1000.0  # Convert to km/s
-        
-        # Calculate RTN components
-        def calculate_rtn(r, v):
-            r_mag = np.linalg.norm(r)
-            v_mag = np.linalg.norm(v)
-            
-            # Radial unit vector
-            r_hat = r / r_mag
-            
-            # Transverse unit vector
-            h = np.cross(r, v)
-            h_hat = h / np.linalg.norm(h)
-            t_hat = np.cross(h_hat, r_hat)
-            
-            # Normal unit vector
-            n_hat = h_hat
-            
-            return r_hat, t_hat, n_hat
-        
-        r_hat, t_hat, n_hat = calculate_rtn(r1, v1)
-        
-        # Project relative position and velocity onto RTN
-        r_rel_r = np.dot(r_rel, r_hat)
-        r_rel_t = np.dot(r_rel, t_hat)
-        r_rel_n = np.dot(r_rel, n_hat)
-        
-        v_rel_r = np.dot(v_rel, r_hat)
-        v_rel_t = np.dot(v_rel, t_hat)
-        v_rel_n = np.dot(v_rel, n_hat)
-        
-        # Calculate geocentric latitude and azimuth
-        r_earth = np.array([r1[0], r1[1], 0])
-        r_earth_mag = np.linalg.norm(r_earth)
-        geocentric_lat = np.degrees(np.arcsin(r1[2]/np.linalg.norm(r1)))
-        
-        v_horiz = np.array([v_rel[0], v_rel[1], 0])
-        azimuth = np.degrees(np.arctan2(v_horiz[1], v_horiz[0]))
-        
-        # Space weather features (placeholder values)
-        F10 = 100
-        F3M = 100
-        SSN = 50
-        AP = 5
-        
-        # Covariance features (placeholder values)
-        sigma_r = 100  # meters
-        sigma_t = 100
-        sigma_n = 100
-        sigma_rdot = 0.1  # m/s
-        sigma_tdot = 0.1
-        sigma_ndot = 0.1
         
         # Create feature array with 102 features
         features = np.zeros(102)
         
-        # Time and risk features (4)
-        features[0] = 1.0  # time_to_tca
-        features[1] = 0.0  # risk
-        features[2] = 0.0  # max_risk_estimate
-        features[3] = 1.0  # max_risk_scaling
+        # Basic orbital elements (12)
+        features[0] = a1
+        features[1] = e1
+        features[2] = i1
+        features[3] = raan1
+        features[4] = pa1
+        features[5] = ma1
+        features[6] = a2
+        features[7] = e2
+        features[8] = i2
+        features[9] = raan2
+        features[10] = pa2
+        features[11] = ma2
         
-        # Position and velocity features (8)
-        features[4] = miss_distance * 1000  # convert to meters
-        features[5] = relative_speed * 1000  # convert to m/s
-        features[6] = r_rel_r
-        features[7] = r_rel_t
-        features[8] = r_rel_n
-        features[9] = v_rel_r
-        features[10] = v_rel_t
-        features[11] = v_rel_n
+        # Relative orbital elements (6)
+        features[12] = da
+        features[13] = de
+        features[14] = di
+        features[15] = draan
+        features[16] = dpa
+        features[17] = dma
         
-        # Target orbital elements (6)
-        features[12] = a1
-        features[13] = e1
-        features[14] = i1
-        features[15] = raan1
-        features[16] = pa1
-        features[17] = ma1
+        # Position and velocity components (6)
+        features[18] = r_rel[0] / 1000.0  # Convert to km
+        features[19] = r_rel[1] / 1000.0
+        features[20] = r_rel[2] / 1000.0
+        features[21] = v_rel[0] / 1000.0  # Convert to km/s
+        features[22] = v_rel[1] / 1000.0
+        features[23] = v_rel[2] / 1000.0
         
-        # Chaser orbital elements (6)
-        features[18] = a2
-        features[19] = e2
-        features[20] = i2
-        features[21] = raan2
-        features[22] = pa2
-        features[23] = ma2
-        
-        # Geometry features (2)
-        features[24] = geocentric_lat
-        features[25] = azimuth
-        
-        # Space weather features (4)
-        features[26] = F10
-        features[27] = F3M
-        features[28] = SSN
-        features[29] = AP
-        
-        # Covariance features (target) (6)
-        features[30] = sigma_r
-        features[31] = sigma_t
-        features[32] = sigma_n
-        features[33] = sigma_rdot
-        features[34] = sigma_tdot
-        features[35] = sigma_ndot
-        
-        # Covariance features (chaser) (6)
-        features[36] = sigma_r
-        features[37] = sigma_t
-        features[38] = sigma_n
-        features[39] = sigma_rdot
-        features[40] = sigma_tdot
-        features[41] = sigma_ndot
-        
-        # Fill remaining features with zeros (these might be additional features in training data)
-        # features[42:102] = 0
+        # Distance and speed (2)
+        features[24] = miss_distance
+        features[25] = relative_speed
         
         return features
         
