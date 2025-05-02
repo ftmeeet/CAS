@@ -148,45 +148,42 @@ def predict_from_tle(tle1, tle2, model_path='models/conjunction_model.pkl', thre
         print(f"Error in prediction: {e}")
         return None, None, None, None
 
-def process_tle_file(tle_file, model_path='models/conjunction_model.pkl', max_pairs=50, threshold_km=10):
+def process_tle_file(user_tle_file='data/user_tle.csv', tle_data_file='data/tle_data.csv', model_path='models/conjunction_model.pkl', threshold_km=10):
     """
-    Process TLE pairs from a CSV file and calculate actual distances and collision probabilities.
+    Process TLE pairs between user satellites and database satellites.
     
     Args:
-        tle_file (str): Path to the TLE data file
+        user_tle_file (str): Path to the user's TLE file (format: Name,TLE1,TLE2)
+        tle_data_file (str): Path to the TLE database file (format: Name,TLE1,TLE2)
         model_path (str): Path to the trained model
-        max_pairs (int): Maximum number of pairs to process
         threshold_km (float): Distance threshold in kilometers for conjunction detection
     """
     try:
-        # Ensure max_pairs is an integer
-        max_pairs = int(max_pairs)
+        # Ensure threshold_km is a float
         threshold_km = float(threshold_km)
         
         # Check if model exists
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Model file not found at {model_path}")
             
-        # Read TLE data
-        df = pd.read_csv(tle_file)
+        # Read user TLE data
+        user_df = pd.read_csv(user_tle_file)
+        # Read database TLE data
+        db_df = pd.read_csv(tle_data_file)
         
         # Create output directory if it doesn't exist
         os.makedirs('data', exist_ok=True)
         
-        # Process pairs up to max_pairs
+        # Process all pairs
         results = []
-        total_pairs = min(max_pairs, len(df) * (len(df) - 1) // 2)
+        total_pairs = len(user_df) * len(db_df)
         
-        print(f"Processing first {total_pairs} pairs...")
+        print(f"Processing {total_pairs} pairs...")
         with tqdm(total=total_pairs, desc="Processing satellite pairs", unit="pair") as pbar:
-            pair_count = 0
-            for i in range(len(df)):
-                for j in range(i + 1, len(df)):
-                    if pair_count >= max_pairs:
-                        break
-                        
-                    tle1 = f"{df.iloc[i]['TLE1']}\n{df.iloc[i]['TLE2']}"
-                    tle2 = f"{df.iloc[j]['TLE1']}\n{df.iloc[j]['TLE2']}"
+            for i in range(len(user_df)):
+                for j in range(len(db_df)):
+                    tle1 = f"{user_df.iloc[i]['TLE1']}\n{user_df.iloc[i]['TLE2']}"
+                    tle2 = f"{db_df.iloc[j]['TLE1']}\n{db_df.iloc[j]['TLE2']}"
                     
                     pred, actual_distance, risk_value, probability = predict_from_tle(
                         tle1, tle2, model_path, threshold_km
@@ -194,8 +191,8 @@ def process_tle_file(tle_file, model_path='models/conjunction_model.pkl', max_pa
                     
                     if pred is not None and actual_distance is not None and risk_value is not None:
                         results.append({
-                            'Satellite1': str(df.iloc[i]['Name']),
-                            'Satellite2': str(df.iloc[j]['Name']),
+                            'User_Satellite': str(user_df.iloc[i]['Name']),
+                            'Database_Satellite': str(db_df.iloc[j]['Name']),
                             'Prediction': int(pred),
                             'Actual_Distance_km': float(actual_distance),
                             'Risk_Value': float(risk_value),
@@ -203,11 +200,7 @@ def process_tle_file(tle_file, model_path='models/conjunction_model.pkl', max_pa
                             'Risk_Level': 'High' if probability > 0.7 else 'Medium' if probability > 0.3 else 'Low'
                         })
                     
-                    pair_count += 1
                     pbar.update(1)
-                
-                if pair_count >= max_pairs:
-                    break
         
         # Save results to CSV
         results_df = pd.DataFrame(results)
@@ -238,15 +231,15 @@ def process_tle_file(tle_file, model_path='models/conjunction_model.pkl', max_pa
             if conjunctions:
                 print("\nPotential Conjunctions:")
                 for conj in conjunctions:
-                    print(f"{conj['Satellite1']} - {conj['Satellite2']}:")
+                    print(f"{conj['User_Satellite']} - {conj['Database_Satellite']}:")
                     print(f"  Actual Distance: {conj['Actual_Distance_km']:.2f} km")
                     print(f"  Risk Value: {conj['Risk_Value']:.4f}")
                     print(f"  Collision Probability: {conj['Collision_Probability']:.2%}")
                     print(f"  Risk Level: {conj['Risk_Level']}")
         
     except Exception as e:
-        print(f"Error processing TLE file: {e}")
+        print(f"Error processing TLE files: {e}")
         raise  # Re-raise the exception to see the full traceback
 
 if __name__ == "__main__":
-    process_tle_file('data/tle_data.csv', max_pairs=50, threshold_km=10) 
+    process_tle_file('data/user_tle.csv', 'data/tle_data.csv', threshold_km=10) 

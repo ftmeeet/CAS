@@ -4,62 +4,74 @@ from datetime import datetime, timedelta
 from fetch_tle import fetch_and_save_tle_data
 from train_model import train_and_save_model
 from predict_from_tle import process_tle_file
+import warnings
 
-def check_tle_data_freshness(tle_file='data/tle_data.csv', max_age_hours=24):
+# Suppress all warnings
+warnings.filterwarnings('ignore')
+
+def check_tle_freshness(tle_file='data/tle_data.csv', max_age_hours=24):
     """
-    Check if the TLE data file exists and is recent enough.
+    Check if TLE data is fresh enough.
     
     Args:
         tle_file (str): Path to the TLE data file
-        max_age_hours (int): Maximum age of TLE data in hours
+        max_age_hours (int): Maximum age in hours before data is considered stale
         
     Returns:
-        bool: True if data is fresh, False if needs updating
+        bool: True if data is fresh, False otherwise
     """
     if not os.path.exists(tle_file):
         return False
         
-    # Get file modification time
     file_time = datetime.fromtimestamp(os.path.getmtime(tle_file))
-    current_time = datetime.now()
+    age_hours = (datetime.now() - file_time).total_seconds() / 3600
     
-    # Check if file is older than max_age_hours
-    if current_time - file_time > timedelta(hours=max_age_hours):
+    return age_hours <= max_age_hours
+
+def check_model_freshness(model_file='models/conjunction_model.pkl', max_age_days=7):
+    """
+    Check if the model is fresh enough.
+    
+    Args:
+        model_file (str): Path to the model file
+        max_age_days (int): Maximum age in days before model is considered stale
+        
+    Returns:
+        bool: True if model is fresh, False otherwise
+    """
+    if not os.path.exists(model_file):
         return False
         
-    return True
+    file_time = datetime.fromtimestamp(os.path.getmtime(model_file))
+    age_days = (datetime.now() - file_time).days
+    
+    return age_days <= max_age_days
 
 def main():
+    """
+    Main function to run the conjunction analysis.
+    """
     try:
-        # Check if TLE data needs updating
-        if not check_tle_data_freshness():
-            print("TLE data is either missing or older than 24 hours.")
-            print("Fetching fresh TLE data...")
-            fetch_and_save_tle_data()
-        else:
-            print("Using existing TLE data (less than 24 hours old)")
-        
-        # Check if model exists and is recent
-        model_path = 'models/conjunction_model.pkl'
-        if not os.path.exists(model_path):
-            print("\nModel not found. Training new model...")
-            train_and_save_model()
-        else:
-            # Check model age
-            model_time = datetime.fromtimestamp(os.path.getmtime(model_path))
-            current_time = datetime.now()
-            if current_time - model_time > timedelta(days=7):  # Retrain model weekly
-                print("\nModel is older than 7 days. Retraining...")
-                train_and_save_model()
-            else:
-                print("\nUsing existing model")
-        
-        # Process TLE data and make predictions
-        print("\nProcessing TLE data and making predictions...")
-        process_tle_file('data/tle_data.csv', max_pairs=50, threshold_km=10)
+        # Check TLE data freshness
+        if not check_tle_freshness():
+            print("Warning: TLE data is stale or missing. Please update the data.")
+            return
+            
+        # Check model freshness
+        if not check_model_freshness():
+            print("Warning: Model is stale or missing. Please retrain the model.")
+            return
+            
+        # Process TLE file
+        process_tle_file(
+            user_tle_file='data/user_tle.csv',
+            tle_data_file='data/tle_data.csv',
+            model_path='models/conjunction_model.pkl',
+            threshold_km=10
+        )
         
     except Exception as e:
-        print(f"Error in main process: {e}")
+        print(f"Error in main: {e}")
         raise
 
 if __name__ == "__main__":

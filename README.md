@@ -1,82 +1,95 @@
-# CAS (Collision Avoidance System)
+# Conjunction Analysis System (CAS)
 
-A Python-based tool for satellite collision prediction and avoidance using the SGP4 algorithm with realistic 3D Earth rendering and orbit visualization.
+A system for analyzing potential satellite conjunctions using Two-Line Element (TLE) data and machine learning.
 
 ## Features
 
-- Automatic satellite database updating from CelesTrak
-- Interactive satellite selection from thousands of objects
-- Search functionality for finding specific satellites
-- High-resolution 3D Earth visualization with texture mapping
-- Bilinear interpolation for smooth Earth texture rendering
-- Detailed orbit propagation using SGP4 algorithm
-- Static 3D orbit visualization
-- Animated orbit visualization with time-synced Earth rotation
-- Orbit characteristics calculation (altitude, eccentricity)
-- Collision risk assessment between satellite orbits
+- TLE data processing and validation
+- Satellite conjunction prediction
+- Machine learning-based risk assessment
+- Distance and probability calculations
+- Progress tracking and detailed reporting
 
 ## Requirements
 
-- Python 3.x
-- sgp4
-- numpy
-- matplotlib
-- pandas
-- requests
+- Python 3.8+
+- Required packages:
+  - pandas
+  - numpy
+  - scikit-learn
+  - joblib
+  - tqdm
+  - orekit
+  - hipparchus
 
 ## Installation
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/ftmeeet/CAS.git
+git clone https://github.com/yourusername/CAS.git
 cd CAS
 ```
 
-2. Install the required packages:
+2. Create and activate a virtual environment:
 ```bash
-pip install sgp4 numpy matplotlib pandas requests
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-3. Download an Earth texture image (earth_texture.jpg) and place it in the project directory.
+3. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
 
 ## Usage
 
-Run the main script:
+1. Prepare your TLE data:
+   - Place your satellite TLEs in `data/user_tle.csv` (format: Name,TLE1,TLE2)
+   - Ensure `data/tle_data.csv` contains the database of satellites to compare against
+
+2. Run the analysis:
 ```bash
-python Main.py
+python main.py
 ```
 
 The script will:
-1. Automatically check for and update the satellite database if needed
-2. Present a list of available satellites
-3. Allow you to search for specific satellites by name
-4. Calculate orbit propagation for your selected satellite
-5. Provide visualization options:
-   - Static 3D orbit plot
-   - Animated orbit visualization
+- Check TLE data freshness
+- Check model freshness
+- Compare your satellites with the database
+- Generate predictions and save them to `data/predictions.csv`
 
-## Visualization Options
+## File Structure
 
-### Static 3D Orbit Plot
-- Displays the complete orbital path 
-- Shows start and end points with timestamps
-- Indicates portions of orbit behind Earth with dashed lines
-- Includes orbit statistics (min/max altitude, eccentricity)
+```
+CAS/
+├── data/                   # Data directory (ignored by git)
+│   ├── user_tle.csv       # User's satellite TLEs
+│   ├── tle_data.csv       # Database of satellite TLEs
+│   └── predictions.csv    # Generated predictions
+├── models/                 # Trained models
+│   ├── conjunction_model.pkl
+│   └── conjunction_model_scaler.pkl
+├── main.py                # Main script
+├── predict_from_tle.py    # Prediction functions
+├── requirements.txt       # Python dependencies
+└── README.md             # This file
+```
 
-### Animated Orbit
-- Dynamic satellite position tracking
-- Earth rotation synchronized with timestamps
-- Satellite trail visualization
-- Real-time altitude and time display
+## Output
 
-## Data Sources
+The system generates:
+- Distance measurements between satellites
+- Risk assessments
+- Collision probabilities
+- Detailed reports of potential conjunctions
 
-Satellite TLE data is automatically fetched from CelesTrak (https://celestrak.org/) and includes:
-- Active satellites
-- Debris objects
+## Notes
 
-The database is automatically updated when running the program if the data is older than 24 hours.
+- TLE data should be updated regularly (less than 24 hours old)
+- Models are retrained weekly
+- Data files are ignored by git to keep repository size manageable
+- Models are included in the repository for reproducibility
 
 ## License
 
-This project is open source and available under the MIT License. 
+This project is licensed under the MIT License - see the LICENSE file for details. 

@@ -1,18 +1,9 @@
-# Data files
-data/
-*.csv
-
-# Model files
-models/
-*.pkl
-
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-env/
 build/
 develop-eggs/
 dist/
@@ -24,12 +15,14 @@ lib64/
 parts/
 sdist/
 var/
+wheels/
 *.egg-info/
-.installed
-.cfg
+.installed.cfg
+*.egg
 
 # Virtual Environment
 venv/
+env/
 ENV/
 
 # IDE
@@ -38,6 +31,21 @@ ENV/
 *.swp
 *.swo
 
-# OS
+# Data files
+data/
+*.csv
+*.txt
+*.json
+
+# Keep models
+!models/
+models/*.pkl
+models/*.joblib
+
+# Logs
+*.log
+logs/
+
+# System files
 .DS_Store
 Thumbs.db 
