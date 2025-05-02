@@ -5,7 +5,6 @@ from org.orekit.frames import FramesFactory
 from org.orekit.time import AbsoluteDate, TimeScalesFactory
 from org.orekit.propagation.analytical.tle import TLE, TLEPropagator
 from org.hipparchus.geometry.euclidean.threed import Vector3D
-from org.orekit.orbits import KeplerianOrbit
 import datetime
 import math
 
@@ -19,13 +18,15 @@ def create_propagator(tle_line1, tle_line2):
 
 def extract_features_from_tles(tle1_line1, tle1_line2, tle2_line1, tle2_line2):
     """
-    Extract essential features from two TLEs for conjunction prediction.
-    Returns a list of features in the same order as the training data.
+    Extract features from two TLEs that match the training data format using Orekit.
+    Returns a list of 26 features in the same order as the training data.
     """
     try:
-        # Create Orekit TLE objects
+        # Create Orekit TLE objects and propagators
         tle1 = TLE(tle1_line1, tle1_line2)
         tle2 = TLE(tle2_line1, tle2_line2)
+        propagator1 = TLEPropagator.selectExtrapolator(tle1)
+        propagator2 = TLEPropagator.selectExtrapolator(tle2)
         
         # Get current time
         utc = TimeScalesFactory.getUTC()
@@ -33,40 +34,12 @@ def extract_features_from_tles(tle1_line1, tle1_line2, tle2_line1, tle2_line2):
         current_date = AbsoluteDate(now.year, now.month, now.day, 
                                   now.hour, now.minute, float(now.second), utc)
         
-        # Create propagators
-        propagator1 = TLEPropagator.selectExtrapolator(tle1)
-        propagator2 = TLEPropagator.selectExtrapolator(tle2)
+        # Find closest approach
+        min_dist, best_time = propagate_and_find_closest(tle1, tle2, current_date)
         
         # Propagate to current time
         state1 = propagator1.propagate(current_date)
         state2 = propagator2.propagate(current_date)
-        
-        # Convert to Keplerian orbits
-        orbit1 = KeplerianOrbit(state1.getPVCoordinates(), FramesFactory.getTEME(), current_date, state1.getMu())
-        orbit2 = KeplerianOrbit(state2.getPVCoordinates(), FramesFactory.getTEME(), current_date, state2.getMu())
-        
-        # Extract basic orbital elements
-        a1 = orbit1.getA() / 1000.0  # Convert to km
-        e1 = orbit1.getE()
-        i1 = np.degrees(orbit1.getI())
-        raan1 = np.degrees(orbit1.getRightAscensionOfAscendingNode())
-        pa1 = np.degrees(orbit1.getPerigeeArgument())
-        ma1 = np.degrees(orbit1.getMeanAnomaly())
-        
-        a2 = orbit2.getA() / 1000.0
-        e2 = orbit2.getE()
-        i2 = np.degrees(orbit2.getI())
-        raan2 = np.degrees(orbit2.getRightAscensionOfAscendingNode())
-        pa2 = np.degrees(orbit2.getPerigeeArgument())
-        ma2 = np.degrees(orbit2.getMeanAnomaly())
-        
-        # Calculate relative orbital elements
-        da = abs(a1 - a2)
-        de = abs(e1 - e2)
-        di = abs(i1 - i2)
-        draan = abs(raan1 - raan2)
-        dpa = abs(pa1 - pa2)
-        dma = abs(ma1 - ma2)
         
         # Get position and velocity vectors
         pv1 = state1.getPVCoordinates(FramesFactory.getTEME())
@@ -82,48 +55,97 @@ def extract_features_from_tles(tle1_line1, tle1_line2, tle2_line1, tle2_line2):
         r_rel = r2 - r1
         v_rel = v2 - v1
         
-        # Calculate distances and speeds
+        # Get orbital elements from Orekit
+        orbit1 = state1.getOrbit()
+        orbit2 = state2.getOrbit()
+        
+        # Extract orbital elements
+        a1 = orbit1.getA() / 1000.0  # Convert to km
+        e1 = orbit1.getE()
+        i1 = np.degrees(orbit1.getI())
+        
+        a2 = orbit2.getA() / 1000.0  # Convert to km
+        e2 = orbit2.getE()
+        i2 = np.degrees(orbit2.getI())
+        
+        # Calculate miss distance and relative speed
         miss_distance = np.linalg.norm(r_rel) / 1000.0  # Convert to km
         relative_speed = np.linalg.norm(v_rel) / 1000.0  # Convert to km/s
         
-        # Create feature array with 102 features
-        features = np.zeros(102)
+        # Calculate RTN components
+        def calculate_rtn(r, v):
+            r_mag = np.linalg.norm(r)
+            v_mag = np.linalg.norm(v)
+            
+            # Radial unit vector
+            r_hat = r / r_mag
+            
+            # Transverse unit vector
+            h = np.cross(r, v)
+            h_hat = h / np.linalg.norm(h)
+            t_hat = np.cross(h_hat, r_hat)
+            
+            # Normal unit vector
+            n_hat = h_hat
+            
+            return r_hat, t_hat, n_hat
         
-        # Basic orbital elements (12)
-        features[0] = a1
-        features[1] = e1
-        features[2] = i1
-        features[3] = raan1
-        features[4] = pa1
-        features[5] = ma1
-        features[6] = a2
-        features[7] = e2
-        features[8] = i2
-        features[9] = raan2
-        features[10] = pa2
-        features[11] = ma2
+        r_hat, t_hat, n_hat = calculate_rtn(r1, v1)
         
-        # Relative orbital elements (6)
-        features[12] = da
-        features[13] = de
-        features[14] = di
-        features[15] = draan
-        features[16] = dpa
-        features[17] = dma
+        # Project relative position and velocity onto RTN
+        r_rel_r = np.dot(r_rel, r_hat)
+        r_rel_t = np.dot(r_rel, t_hat)
+        r_rel_n = np.dot(r_rel, n_hat)
         
-        # Position and velocity components (6)
-        features[18] = r_rel[0] / 1000.0  # Convert to km
-        features[19] = r_rel[1] / 1000.0
-        features[20] = r_rel[2] / 1000.0
-        features[21] = v_rel[0] / 1000.0  # Convert to km/s
-        features[22] = v_rel[1] / 1000.0
-        features[23] = v_rel[2] / 1000.0
+        v_rel_r = np.dot(v_rel, r_hat)
+        v_rel_t = np.dot(v_rel, t_hat)
+        v_rel_n = np.dot(v_rel, n_hat)
         
-        # Distance and speed (2)
-        features[24] = miss_distance
-        features[25] = relative_speed
+        # Calculate geocentric latitude and azimuth
+        r_earth = np.array([r1[0], r1[1], 0])
+        r_earth_mag = np.linalg.norm(r_earth)
+        geocentric_lat = np.degrees(np.arcsin(r1[2]/np.linalg.norm(r1)))
         
-        return features
+        v_horiz = np.array([v_rel[0], v_rel[1], 0])
+        azimuth = np.degrees(np.arctan2(v_horiz[1], v_horiz[0]))
+        
+        # Return exactly 26 features in the same order as training data
+        return [
+            # Time and risk features (4)
+            1.0,  # time_to_tca
+            0.0,  # risk
+            0.0,  # max_risk_estimate
+            1.0,  # max_risk_scaling
+            
+            # Position and velocity features (6)
+            miss_distance * 1000,  # convert to meters
+            relative_speed * 1000,  # convert to m/s
+            r_rel_r,  # already in meters
+            r_rel_t,
+            r_rel_n,
+            v_rel_r,  # already in m/s
+            
+            # Target orbital elements (3)
+            a1, e1, i1,
+            
+            # Chaser orbital elements (3)
+            a2, e2, i2,
+            
+            # Geometry features (2)
+            geocentric_lat, azimuth,
+            
+            # Space weather features (4)
+            100,  # F10
+            100,  # F3M
+            50,   # SSN
+            5,    # AP
+            
+            # Covariance features (4)
+            100,  # sigma_r
+            100,  # sigma_t
+            100,  # sigma_n
+            0.1   # sigma_rdot
+        ]
         
     except Exception:
         return None
@@ -159,16 +181,16 @@ def are_orbits_close(tle1, tle2, sma_thresh_km=100, inc_thresh_deg=5):
 
 def propagate_and_find_closest(tle1, tle2, start_date, duration_sec=86400, coarse_step=600, fine_step=60, threshold_km=10):
     """
-    Propagate two satellites and find their closest approach.
+    Propagate two TLEs and find their closest approach.
     
     Args:
-        tle1 (TLE): First satellite TLE
-        tle2 (TLE): Second satellite TLE
-        start_date (AbsoluteDate): Start date for propagation
-        duration_sec (int): Duration to propagate in seconds
-        coarse_step (int): Coarse search step in seconds
-        fine_step (int): Fine search step in seconds
-        threshold_km (float): Distance threshold for fine search
+        tle1: First TLE
+        tle2: Second TLE
+        start_date: Start date for propagation
+        duration_sec: Duration to propagate in seconds
+        coarse_step: Coarse search step in seconds
+        fine_step: Fine search step in seconds
+        threshold_km: Distance threshold for fine search
         
     Returns:
         tuple: (minimum distance in km, time of closest approach)

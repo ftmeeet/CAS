@@ -56,7 +56,7 @@ def read_user_tle():
 
 def predict_from_tle(tle1_line1, tle1_line2, tle2_line1, tle2_line2, model_path='models/conjunction_model.pkl', date=None):
     """
-    Make a prediction for a pair of TLEs at a specific date.
+    Make a prediction for a pair of TLEs at a specific date using the 25-feature model.
     """
     try:
         # Load model and scaler
@@ -68,8 +68,15 @@ def predict_from_tle(tle1_line1, tle1_line2, tle2_line1, tle2_line2, model_path=
         if features is None:
             return None, None, None
             
-        # Create feature names array
-        feature_names = [f'feature_{i}' for i in range(len(features))]
+        # Create feature names array matching the training data
+        feature_names = [
+            'a1', 'e1', 'i1', 'raan1', 'pa1', 'ma1',  # Basic orbital elements for satellite 1
+            'a2', 'e2', 'i2', 'raan2', 'pa2', 'ma2',  # Basic orbital elements for satellite 2
+            'da', 'de', 'di', 'draan', 'dpa', 'dma',  # Relative orbital elements
+            'r_rel_x', 'r_rel_y', 'r_rel_z',  # Relative position components
+            'v_rel_x', 'v_rel_y', 'v_rel_z',  # Relative velocity components
+            'miss_distance', 'relative_speed'  # Distance and speed metrics
+        ]
         
         # Convert to DataFrame with feature names
         features_df = pd.DataFrame([features], columns=feature_names)
@@ -99,7 +106,7 @@ def predict_from_tle(tle1_line1, tle1_line2, tle2_line1, tle2_line2, model_path=
 
 def compare_with_tle_data(user_tle1, user_tle2, tle_data_file, model_path='models/conjunction_model.pkl'):
     """
-    Compare user's TLE with all TLEs in the data file and save all predictions.
+    Compare user's TLE with all TLEs in the data file and save all predictions with detailed logs.
     Uses distance thresholds based on training data to filter out distant satellites.
     """
     try:
@@ -113,10 +120,10 @@ def compare_with_tle_data(user_tle1, user_tle2, tle_data_file, model_path='model
         user_tle_obj = TLE(user_tle1, user_tle2)
         
         results = []
+        logs = []
         total_satellites = len(df)
         
         # Distance thresholds (in km) based on training data
-        # These values are typical for conjunction events
         MIN_DISTANCE_THRESHOLD = 100  # Minimum distance to consider
         MAX_DISTANCE_THRESHOLD = 1000  # Maximum distance to consider
         
@@ -136,6 +143,7 @@ def compare_with_tle_data(user_tle1, user_tle2, tle_data_file, model_path='model
                 time_points = []
                 probabilities = []
                 distances = []
+                feature_logs = []
                 
                 for hours in range(0, 49, 6):  # Every 6 hours for 2 days
                     check_time = current_time + timedelta(hours=hours)
@@ -151,37 +159,46 @@ def compare_with_tle_data(user_tle1, user_tle2, tle_data_file, model_path='model
                             time_points.append(check_time)
                             probabilities.append(prob)
                             distances.append(min_dist)
-                    except Exception:
+                            
+                            # Extract features for logging
+                            features = extract_features_from_tles(user_tle1, user_tle2, other_tle1, other_tle2)
+                            if features is not None:
+                                feature_logs.append({
+                                    'time': check_time,
+                                    'features': features.tolist(),
+                                    'prediction': pred,
+                                    'probability': prob,
+                                    'distance': min_dist
+                                })
+                    except Exception as e:
+                        logs.append({
+                            'time': check_time,
+                            'satellite1': user_tle_obj.getSatelliteNumber(),
+                            'satellite2': row['Name'],
+                            'error': str(e)
+                        })
                         continue
                 
-                # Add result even if no probabilities (mark as not potential conjunction)
-                if not probabilities:
-                    result = {
-                        'Satellite1': user_tle_obj.getSatelliteNumber(),
-                        'Satellite2': row['Name'],
-                        'Max_Probability': 0.0,
-                        'Time_of_Max_Probability': current_time,
-                        'Distance_at_Max_Probability': float('inf'),
-                        'All_Probabilities': '[]',
-                        'All_Times': '[]',
-                        'All_Distances': '[]',
-                        'Potential_Conjunction': False
-                    }
-                else:
-                    # Check if this is a potential conjunction
-                    is_potential = any(p > 0.5 for p in probabilities) and any(d <= MAX_DISTANCE_THRESHOLD for d in distances)
-                    
-                    result = {
-                        'Satellite1': user_tle_obj.getSatelliteNumber(),
-                        'Satellite2': row['Name'],
-                        'Max_Probability': max(probabilities),
-                        'Time_of_Max_Probability': time_points[np.argmax(probabilities)],
-                        'Distance_at_Max_Probability': distances[np.argmax(probabilities)],
-                        'All_Probabilities': str(probabilities),
-                        'All_Times': str(time_points),
-                        'All_Distances': str(distances),
-                        'Potential_Conjunction': is_potential
-                    }
+                # Create result entry
+                result = {
+                    'Satellite1': user_tle_obj.getSatelliteNumber(),
+                    'Satellite2': row['Name'],
+                    'Max_Probability': max(probabilities) if probabilities else 0.0,
+                    'Time_of_Max_Probability': time_points[np.argmax(probabilities)] if probabilities else current_time,
+                    'Distance_at_Max_Probability': distances[np.argmax(probabilities)] if probabilities else float('inf'),
+                    'All_Probabilities': str(probabilities),
+                    'All_Times': str(time_points),
+                    'All_Distances': str(distances),
+                    'Potential_Conjunction': any(p > 0.5 for p in probabilities) and any(d <= MAX_DISTANCE_THRESHOLD for d in distances) if probabilities else False
+                }
+                
+                # Add feature logs for this satellite pair
+                logs.append({
+                    'satellite1': user_tle_obj.getSatelliteNumber(),
+                    'satellite2': row['Name'],
+                    'feature_logs': feature_logs,
+                    'result': result
+                })
                 
                 results.append(result)
                 pbar.update(1)
@@ -195,12 +212,19 @@ def compare_with_tle_data(user_tle1, user_tle2, tle_data_file, model_path='model
         # Create data directory if it doesn't exist
         os.makedirs('data', exist_ok=True)
         
-        # Save to CSV with proper formatting
-        output_file = 'data/user_tle_predictions_test.csv'  # Changed filename for test run
-        results_df.to_csv(output_file, index=False, float_format='%.6f')
+        # Save results to CSV
+        results_file = 'data/user_tle_predictions_test.csv'
+        results_df.to_csv(results_file, index=False, float_format='%.6f')
+        
+        # Save detailed logs to JSON
+        import json
+        logs_file = 'data/prediction_logs.json'
+        with open(logs_file, 'w') as f:
+            json.dump(logs, f, indent=4, default=str)
         
         # Print summary statistics
-        print(f"\nResults saved to {output_file}")
+        print(f"\nResults saved to {results_file}")
+        print(f"Detailed logs saved to {logs_file}")
         print(f"Total satellites processed: {total_satellites}")
         print(f"Satellites with potential conjunctions: {sum(1 for r in results if r['Potential_Conjunction'])}")
         

@@ -1,7 +1,10 @@
 # Data files
 data/
 *.csv
-*.txt
+
+# Model files
+models/
+*.pkl
 
 # Python
 __pycache__/
@@ -22,8 +25,8 @@ parts/
 sdist/
 var/
 *.egg-info/
-.installed.cfg
-*.egg
+.installed
+.cfg
 
 # Virtual Environment
 venv/
@@ -34,13 +37,6 @@ ENV/
 .vscode/
 *.swp
 *.swo
-
-# Logs
-*.log
-
-# Models
-models/
-*.pkl
 
 # OS
 .DS_Store
