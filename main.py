@@ -67,7 +67,7 @@ def main():
             user_tle_file='data/user_tle.csv',
             tle_data_file='data/tle_data.csv',
             model_path='models/conjunction_model.pkl',
-            threshold_km=10
+            threshold_km=100
         )
         
     except Exception as e:

@@ -193,7 +193,7 @@ def propagate_and_find_closest(tle1, tle2, start_date, duration_sec=86400, coars
         threshold_km: Distance threshold for fine search
         
     Returns:
-        tuple: (minimum distance in km, time of closest approach)
+        tuple: (minimum distance in km, time of closest approach, relative velocity in km/s)
     """
     try:
         propagator1 = create_propagator(tle1.getLine1(), tle1.getLine2())
@@ -201,7 +201,9 @@ def propagate_and_find_closest(tle1, tle2, start_date, duration_sec=86400, coars
 
         min_dist = float('inf')
         best_time = None
+        rel_vel = None
 
+        # First pass: coarse search
         for t in range(0, duration_sec, coarse_step):
             date = start_date.shiftedBy(float(t))
 
@@ -210,22 +212,143 @@ def propagate_and_find_closest(tle1, tle2, start_date, duration_sec=86400, coars
 
             dist = Vector3D.distance(pv1.getPosition(), pv2.getPosition()) / 1000.0
 
-            if dist < threshold_km and dist < min_dist:
-                # Fine search
-                for dt in range(-coarse_step//2, coarse_step//2, fine_step):
-                    fine_date = date.shiftedBy(float(dt))
-                    pv1f = propagator1.propagate(fine_date).getPVCoordinates(FramesFactory.getTEME())
-                    pv2f = propagator2.propagate(fine_date).getPVCoordinates(FramesFactory.getTEME())
-                    fine_dist = Vector3D.distance(pv1f.getPosition(), pv2f.getPosition()) / 1000.0
+            if dist < min_dist:
+                min_dist = dist
+                best_time = date
+                # Calculate relative velocity at this point
+                rel_vel = Vector3D.distance(
+                    pv2.getVelocity().subtract(pv1.getVelocity()),
+                    Vector3D.ZERO
+                ) / 1000.0  # Convert to km/s
 
-                    if fine_dist < min_dist:
-                        min_dist = fine_dist
-                        best_time = fine_date
+                # If we found a very close approach, do fine search
+                if dist < threshold_km:
+                    # Fine search around this point
+                    for dt in range(-coarse_step//2, coarse_step//2, fine_step):
+                        fine_date = date.shiftedBy(float(dt))
+                        pv1f = propagator1.propagate(fine_date).getPVCoordinates(FramesFactory.getTEME())
+                        pv2f = propagator2.propagate(fine_date).getPVCoordinates(FramesFactory.getTEME())
+                        fine_dist = Vector3D.distance(pv1f.getPosition(), pv2f.getPosition()) / 1000.0
 
-        return min_dist, best_time
+                        if fine_dist < min_dist:
+                            min_dist = fine_dist
+                            best_time = fine_date
+                            rel_vel = Vector3D.distance(
+                                pv2f.getVelocity().subtract(pv1f.getVelocity()),
+                                Vector3D.ZERO
+                            ) / 1000.0
+
+        return min_dist, best_time, rel_vel
         
-    except Exception:
-        return float('inf'), None
+    except Exception as e:
+        print(f"Error in propagate_and_find_closest: {e}")
+        return float('inf'), None, None
+
+def calculate_collision_probability(distance_km, relative_velocity_km_s, threshold_km=10, risk_value=None):
+    """
+    Calculate collision probability based on distance and risk value.
+    
+    Args:
+        distance_km (float): Distance between objects in km
+        relative_velocity_km_s (float): Relative velocity in km/s (not used in this version)
+        threshold_km (float): Distance threshold for conjunction
+        risk_value (float): Risk value from the model
+        
+    Returns:
+        float: Collision probability between 0 and 1
+    """
+    # Distance-based probability decreases exponentially with distance
+    distance_prob = np.exp(-distance_km / threshold_km)
+    
+    # Risk-based probability from model
+    risk_prob = 1 / (1 + np.exp(risk_value)) if risk_value is not None else 0.0
+    
+    # Combined probability (weighted average)
+    # Give more weight to distance when it's large
+    if distance_km > threshold_km:
+        weight = 0.8  # More weight to distance
+    else:
+        weight = 0.5  # Equal weight
+        
+    collision_probability = weight * distance_prob + (1 - weight) * risk_prob
+    
+    # Ensure probability is between 0 and 1
+    collision_probability = max(0.0, min(1.0, collision_probability))
+    
+    return collision_probability
+
+def calculate_relative_velocity_components(pv1, pv2):
+    """
+    Calculate relative velocity components in RTN (Radial, Transverse, Normal) frame.
+    
+    Args:
+        pv1: PVCoordinates of first object
+        pv2: PVCoordinates of second object
+        
+    Returns:
+        tuple: (radial, transverse, normal) components in km/s
+    """
+    # Get position and velocity vectors
+    r1 = pv1.getPosition()
+    v1 = pv1.getVelocity()
+    r2 = pv2.getPosition()
+    v2 = pv2.getVelocity()
+    
+    # Calculate relative velocity
+    v_rel = v2.subtract(v1)
+    
+    # Calculate RTN frame
+    r_mag = Vector3D.distance(r1, Vector3D.ZERO)
+    r_hat = r1.scalarMultiply(1.0 / r_mag)
+    
+    h = Vector3D.crossProduct(r1, v1)
+    h_hat = h.scalarMultiply(1.0 / Vector3D.distance(h, Vector3D.ZERO))
+    
+    t_hat = Vector3D.crossProduct(h_hat, r_hat)
+    
+    # Project relative velocity onto RTN frame
+    v_radial = Vector3D.dotProduct(v_rel, r_hat) / 1000.0  # Convert to km/s
+    v_transverse = Vector3D.dotProduct(v_rel, t_hat) / 1000.0
+    v_normal = Vector3D.dotProduct(v_rel, h_hat) / 1000.0
+    
+    return v_radial, v_transverse, v_normal
+
+def calculate_miss_distance(pv1, pv2):
+    """
+    Calculate miss distance between two objects.
+    
+    Args:
+        pv1: PVCoordinates of first object
+        pv2: PVCoordinates of second object
+        
+    Returns:
+        float: Miss distance in km
+    """
+    return Vector3D.distance(pv1.getPosition(), pv2.getPosition()) / 1000.0
+
+def calculate_time_to_closest_approach(pv1, pv2):
+    """
+    Calculate time to closest approach using relative position and velocity.
+    
+    Args:
+        pv1: PVCoordinates of first object
+        pv2: PVCoordinates of second object
+        
+    Returns:
+        float: Time to closest approach in seconds, or None if objects are stationary relative to each other
+    """
+    r_rel = pv2.getPosition().subtract(pv1.getPosition())
+    v_rel = pv2.getVelocity().subtract(pv1.getVelocity())
+    
+    # Check if relative velocity is zero
+    v_rel_mag = Vector3D.dotProduct(v_rel, v_rel)
+    if v_rel_mag < 1e-10:  # Small threshold to avoid numerical issues
+        return None
+    
+    # Time to closest approach: t = -r_rel · v_rel / |v_rel|²
+    t = -Vector3D.dotProduct(r_rel, v_rel) / v_rel_mag
+    
+    return t
 
 def is_tle_recent(tle, max_age_days=20):
     """
