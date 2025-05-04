@@ -38,6 +38,38 @@ def distance_to_probability(distance_km, threshold_km=10, steepness=0.5):
     # Higher steepness means sharper transition
     return 1 / (1 + np.exp(steepness * (distance_km - threshold_km)))
 
+def load_space_weather_features():
+    """
+    Load space weather features from the saved CSV file.
+    
+    Returns:
+        dict: Dictionary containing space weather features
+    """
+    try:
+        space_weather_file = 'data/space_weather.csv'
+        if not os.path.exists(space_weather_file):
+            raise FileNotFoundError(f"Space weather data file not found at {space_weather_file}")
+            
+        df = pd.read_csv(space_weather_file)
+        latest = df.iloc[-1]  # Get the most recent data
+        
+        return {
+            'F10': latest['F10.7obs'],
+            'F3M': 83.00,
+            'SSN': latest['SN'],
+            'AP': latest['Ap']
+        }
+        
+    except Exception as e:
+        print(f"Error loading space weather features: {e}")
+        # Return default values if loading fails
+        return {
+            'F10': 100.0,
+            'F3M': 100.0,
+            'SSN': 50.0,
+            'AP': 5.0
+        }
+
 def predict_from_tle(tle1, tle2, model_path='models/conjunction_model.pkl', threshold_km=10):
     """
     Calculate actual distance between two satellites using Orekit and get model prediction.
@@ -125,15 +157,15 @@ def predict_from_tle(tle1, tle2, model_path='models/conjunction_model.pkl', thre
         r_rel_y = r_rel.getY() / 1000.0
         r_rel_z = r_rel.getZ() / 1000.0
         
-        # Create feature vector with exactly 18 features
+        # Load space weather features
+        space_weather = load_space_weather_features()
+        
+        # Create feature vector with exactly 22 features
         features = np.array([
-            # Distance and velocity features (6)
+            # Distance and velocity features (5)
             min_dist, relative_velocity_km_s,
-            v_radial, v_transverse, v_normal,
-            time_to_closest,
-            
-            # Relative position components (3)
             r_rel_x, r_rel_y, r_rel_z,
+            v_radial, v_transverse, v_normal,
             
             # Target orbital elements (3)
             t_sma, t_ecc, t_inc,
@@ -141,8 +173,12 @@ def predict_from_tle(tle1, tle2, model_path='models/conjunction_model.pkl', thre
             # Chaser orbital elements (3)
             c_sma, c_ecc, c_inc,
             
-            # Height features (3)
-            t_h_apo, t_h_per, c_h_apo
+            # Height features (4)
+            t_h_apo, t_h_per, c_h_apo, c_h_per,
+            
+            # Space weather features (4)
+            space_weather['F10'], space_weather['F3M'],
+            space_weather['SSN'], space_weather['AP']
         ]).reshape(1, -1)
         
         # Scale features

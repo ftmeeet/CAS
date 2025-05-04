@@ -10,7 +10,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from utils import extract_features_from_tles
 
-def train_and_save_model(data_file='data/raw_data.csv', model_path='models/conjunction_model.pkl'):
+def train_and_save_model(data_path='data/raw_data.csv', model_path='models/conjunction_model.pkl'):
     """
     Train a Random Forest Regressor model and save it to disk.
     
@@ -19,25 +19,31 @@ def train_and_save_model(data_file='data/raw_data.csv', model_path='models/conju
         model_path (str): Path to save the trained model
     """
     try:
-        # Read the data
-        df = pd.read_csv(data_file)
+        # Load training data
+        df = pd.read_csv(data_path)
         
-        # Extract features
-        features = []
-        labels = []
-        
-        # Use relevant columns for features
-        feature_columns = [
+        # Define features and target
+        features = [
+            # Distance and velocity features
             'miss_distance', 'relative_speed',
             'relative_position_r', 'relative_position_t', 'relative_position_n',
             'relative_velocity_r', 'relative_velocity_t', 'relative_velocity_n',
+            
+            # Target orbital elements
             't_j2k_sma', 't_j2k_ecc', 't_j2k_inc',
+            
+            # Chaser orbital elements
             'c_j2k_sma', 'c_j2k_ecc', 'c_j2k_inc',
-            't_h_apo', 't_h_per', 'c_h_apo', 'c_h_per'
+            
+            # Height features
+            't_h_apo', 't_h_per', 'c_h_apo', 'c_h_per',
+            
+            # Space weather features
+            'F10', 'F3M', 'SSN', 'AP'
         ]
         
         # Convert to numpy arrays
-        X = df[feature_columns].values
+        X = df[features].values
         y = df['risk'].values  # Use risk column as target variable
         
         # Split the data

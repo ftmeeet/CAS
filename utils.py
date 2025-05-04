@@ -196,6 +196,14 @@ def propagate_and_find_closest(tle1, tle2, start_date, duration_sec=86400, coars
         tuple: (minimum distance in km, time of closest approach, relative velocity in km/s)
     """
     try:
+        # Get the epoch times of both TLEs
+        epoch1 = tle1.getDate()
+        epoch2 = tle2.getDate()
+        
+        # Use the most recent epoch as the starting point
+        common_start_date = epoch1 if epoch1.compareTo(epoch2) > 0 else epoch2
+        
+        # Create propagators
         propagator1 = create_propagator(tle1.getLine1(), tle1.getLine2())
         propagator2 = create_propagator(tle2.getLine1(), tle2.getLine2())
 
@@ -205,7 +213,7 @@ def propagate_and_find_closest(tle1, tle2, start_date, duration_sec=86400, coars
 
         # First pass: coarse search
         for t in range(0, duration_sec, coarse_step):
-            date = start_date.shiftedBy(float(t))
+            date = common_start_date.shiftedBy(float(t))
 
             pv1 = propagator1.propagate(date).getPVCoordinates(FramesFactory.getTEME())
             pv2 = propagator2.propagate(date).getPVCoordinates(FramesFactory.getTEME())
