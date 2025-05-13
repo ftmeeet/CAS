@@ -1,0 +1,36 @@
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+/* Cesium widget styles */
+.cesium-viewer-toolbar {
+  top: 10px;
+  right: 10px;
+}
+
+.cesium-viewer-animationContainer {
+  bottom: 10px;
+  left: 10px;
+}
+
+.cesium-viewer-timelineContainer {
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 27px;
+}
+
+.cesium-viewer-bottom {
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 27px;
+} 
