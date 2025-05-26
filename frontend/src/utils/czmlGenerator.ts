@@ -30,6 +30,12 @@ interface CzmlPacket {
     color: { rgba: number[] };
     outlineColor: { rgba: number[] };
     outlineWidth: number;
+    scaleByDistance: {
+      near: number;
+      nearValue: number;
+      far: number;
+      farValue: number;
+    };
   };
   path?: {
     resolution: number;
@@ -43,6 +49,10 @@ interface CzmlPacket {
     leadTime: number;
     trailTime: number;
     show: boolean;
+    distanceDisplayCondition: {
+      near: number;
+      far: number;
+    };
   };
 }
 
@@ -69,13 +79,15 @@ export function generateCZML(satellites: SatelliteData[]): string {
   // Add each satellite
   satellites.forEach((satellite, index) => {
     const orbitalPeriod = 24 * 3600 / satellite.tle.meanMotion; // Period in seconds
-    const numPoints = 200; // Increased number of points for smoother interpolation
+    const numPoints = 300; // Increased number of points for smoother interpolation
     const timeStep = orbitalPeriod / numPoints;
     
-    // Calculate positions for one orbit
+    // Calculate positions for one orbit with improved sampling
     const positions: any[] = [];
+    const startDate = new Date(startTime);
+    
     for (let i = 0; i < numPoints; i++) {
-      const time = new Date(startTime.getTime() + i * timeStep * 1000);
+      const time = new Date(startDate.getTime() + i * timeStep * 1000);
       const position = propagateSatellite(satellite.tle, time);
       if (position) {
         positions.push({
@@ -88,7 +100,7 @@ export function generateCZML(satellites: SatelliteData[]): string {
       }
     }
 
-    // Add the satellite packet
+    // Add the satellite packet with improved settings
     czml.push({
       id: satellite.name,
       name: satellite.name,
@@ -96,7 +108,7 @@ export function generateCZML(satellites: SatelliteData[]): string {
       position: {
         epoch: startTime.toISOString(),
         interpolationAlgorithm: "LAGRANGE",
-        interpolationDegree: 7, // Increased interpolation degree for smoother movement
+        interpolationDegree: 9, // Increased for smoother movement
         referenceFrame: "INERTIAL",
         cartesian: positions.map(p => p.position.cartesian).flat()
       },
@@ -108,7 +120,13 @@ export function generateCZML(satellites: SatelliteData[]): string {
         outlineColor: {
           rgba: [255, 255, 255, 255]
         },
-        outlineWidth: 1
+        outlineWidth: 1,
+        scaleByDistance: {
+          near: 1000,
+          nearValue: 4,
+          far: 10000000,
+          farValue: 2
+        }
       },
       path: {
         resolution: 1,
@@ -121,12 +139,16 @@ export function generateCZML(satellites: SatelliteData[]): string {
           }
         },
         width: 2,
-        leadTime: 0,
-        trailTime: orbitalPeriod,
-        show: true
+        leadTime: orbitalPeriod * 0.1, // Show 10% of the orbit ahead
+        trailTime: orbitalPeriod * 0.9, // Show 90% of the orbit behind
+        show: true,
+        distanceDisplayCondition: {
+          near: 0,
+          far: 10000000
+        }
       }
     });
   });
 
   return JSON.stringify(czml);
-} 
+}

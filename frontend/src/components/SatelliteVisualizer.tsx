@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { Viewer, Entity, CameraFlyTo, CesiumComponentRef } from 'resium';
-import { Cartesian3, Color, Ion, createWorldImageryAsync, IonWorldImageryStyle, JulianDate, Clock, ClockRange, ClockStep, Viewer as CesiumViewer, PolylineMaterialAppearance, PolylineGeometry, Primitive, Material, DistanceDisplayCondition, ScreenSpaceEventHandler, ScreenSpaceEventType, Camera, SceneMode, CzmlDataSource, Entity as CesiumEntity } from 'cesium';
+import { Cartesian3, Color, Ion, createWorldImageryAsync, IonWorldImageryStyle, JulianDate, Clock, ClockRange, ClockStep, Viewer as CesiumViewer, PolylineMaterialAppearance, PolylineGeometry, Primitive, Material, DistanceDisplayCondition, ScreenSpaceEventHandler, ScreenSpaceEventType, Camera, SceneMode, CzmlDataSource, Entity as CesiumEntity, PolylineGlowMaterialProperty, PolylineDashMaterialProperty } from 'cesium';
 import { parseTLE } from '../utils/tleParser';
 import { propagateSatellite } from '../utils/satellitePropagator';
 import { generateCZML } from '../utils/czmlGenerator';
@@ -15,10 +15,41 @@ const SatelliteVisualizer: React.FC = () => {
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
   const viewerRef = useRef<CesiumComponentRef<CesiumViewer>>(null);
   const lastTickTime = useRef<number>(0);
-  const TICK_INTERVAL = 100; // Update every 100ms
+  const animationFrameId = useRef<number>(0);
+  const TICK_INTERVAL = 16; // Update every 16ms (approximately 60fps) for smoother animation
   const [selectedSatellite, setSelectedSatellite] = useState<string | null>(null);
   const [sceneMode, setSceneMode] = useState<SceneMode>(SceneMode.SCENE3D);
   const [selectedSatellitePath, setSelectedSatellitePath] = useState<Cartesian3[]>([]);
+  const [orbitPointsDrawer, setOrbitPointsDrawer] = useState<any>(null);
+  const [orbitPolylineDrawer, setOrbitPolylineDrawer] = useState<any>(null);
+
+  // Add animation loop
+  const animate = useCallback(() => {
+    if (viewerRef.current?.cesiumElement) {
+      const clock = viewerRef.current.cesiumElement.clock;
+      const now = Date.now();
+      
+      if (now - lastTickTime.current >= TICK_INTERVAL) {
+        // Force clock to continue running
+        clock.shouldAnimate = true;
+        // Advance the clock
+        clock.tick();
+        setCurrentTime(JulianDate.toDate(clock.currentTime));
+        lastTickTime.current = now;
+      }
+    }
+    animationFrameId.current = requestAnimationFrame(animate);
+  }, []);
+
+  // Start animation loop
+  useEffect(() => {
+    animationFrameId.current = requestAnimationFrame(animate);
+    return () => {
+      if (animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+      }
+    };
+  }, [animate]);
 
   useEffect(() => {
     // Initialize imagery provider
@@ -27,6 +58,18 @@ const SatelliteVisualizer: React.FC = () => {
     }).then(provider => {
       setImageryProvider(provider);
     });
+
+    // Initialize orbit drawers
+    const pointsDrawer = {
+      twoLineElement: null,
+      // Add any additional properties needed for point visualization
+    };
+    const polylineDrawer = {
+      twoLineElement: null,
+      // Add any additional properties needed for polyline visualization
+    };
+    setOrbitPointsDrawer(pointsDrawer);
+    setOrbitPolylineDrawer(polylineDrawer);
 
     const fetchData = async () => {
       try {
@@ -115,19 +158,14 @@ const SatelliteVisualizer: React.FC = () => {
       scene.globe.atmosphereSaturationShift = 0.8;
       scene.globe.atmosphereHueShift = 0.0;
 
-      // Update current time when clock ticks with throttling
+      // Add clock tick event listener
       const tickHandler = () => {
-        const now = Date.now();
-        if (now - lastTickTime.current >= TICK_INTERVAL) {
-          setCurrentTime(JulianDate.toDate(clock.currentTime));
-          lastTickTime.current = now;
-        }
+        clock.shouldAnimate = true;
       };
-      cesiumElement.clock.onTick.addEventListener(tickHandler);
+      clock.onTick.addEventListener(tickHandler);
 
-      // Cleanup
       return () => {
-        cesiumElement.clock.onTick.removeEventListener(tickHandler);
+        clock.onTick.removeEventListener(tickHandler);
       };
     }
   }, [viewerRef.current?.cesiumElement]);
@@ -193,21 +231,22 @@ const SatelliteVisualizer: React.FC = () => {
       // Set up camera event handlers
       const handler = new ScreenSpaceEventHandler(cesiumElement.canvas);
       
-      // Handle mouse wheel for zoom
+      // Handle mouse wheel for zoom with smoother scaling
       handler.setInputAction((movement: any) => {
         const camera = cesiumElement.camera;
-        const zoomFactor = 1.5;
+        const zoomFactor = 1.2; // Reduced for smoother zoom
         const direction = camera.direction;
         const movementAmount = movement.endPosition.y - movement.startPosition.y;
+        const zoomAmount = Math.abs(movementAmount) * 0.1;
         
         if (movementAmount > 0) {
-          camera.move(direction, -zoomFactor * camera.positionCartographic.height * 0.1);
+          camera.move(direction, -zoomFactor * camera.positionCartographic.height * zoomAmount);
         } else {
-          camera.move(direction, zoomFactor * camera.positionCartographic.height * 0.1);
+          camera.move(direction, zoomFactor * camera.positionCartographic.height * zoomAmount);
         }
       }, ScreenSpaceEventType.WHEEL);
 
-      // Handle mouse movement for rotation and panning
+      // Handle mouse movement for rotation and panning with improved sensitivity
       handler.setInputAction((movement: any) => {
         const camera = cesiumElement.camera;
         const windowPosition = movement.endPosition;
@@ -217,21 +256,40 @@ const SatelliteVisualizer: React.FC = () => {
         const windowWidth = scene.canvas.clientWidth;
         const windowHeight = scene.canvas.clientHeight;
         
-        const x = (windowPosition.x - previousWindowPosition.x) / windowWidth;
-        const y = -(windowPosition.y - previousWindowPosition.y) / windowHeight;
+        // Calculate movement with improved sensitivity
+        const x = (windowPosition.x - previousWindowPosition.x) / windowWidth * 2;
+        const y = -(windowPosition.y - previousWindowPosition.y) / windowHeight * 2;
         
-        // Left click for rotation
+        // Left click for rotation with smoother movement
         if (movement.button === 0) {
-          camera.rotateRight(x * Math.PI);
-          camera.rotateUp(y * Math.PI);
+          camera.rotateRight(x * Math.PI * 0.5);
+          camera.rotateUp(y * Math.PI * 0.5);
         }
-        // Right click for panning
+        // Right click for panning with improved scaling
         else if (movement.button === 2) {
-          const moveRate = camera.positionCartographic.height * 0.1;
+          const moveRate = camera.positionCartographic.height * 0.05;
           camera.moveRight(x * moveRate);
           camera.moveUp(y * moveRate);
         }
       }, ScreenSpaceEventType.MOUSE_MOVE);
+
+      // Add double-click handler for zoom to entity
+      handler.setInputAction((click: any) => {
+        const pickedObject = cesiumElement.scene.pick(click.position);
+        if (pickedObject?.id) {
+          const entity = pickedObject.id;
+          if (entity.position) {
+            camera.flyTo({
+              destination: entity.position.getValue(cesiumElement.clock.currentTime),
+              duration: 1.5,
+              complete: () => {
+                // Optional: Add a slight zoom out after reaching the target
+                camera.moveBackward(camera.positionCartographic.height * 0.2);
+              }
+            });
+          }
+        }
+      }, ScreenSpaceEventType.LEFT_DOUBLE_CLICK);
 
       // Cleanup
       return () => {
@@ -244,9 +302,21 @@ const SatelliteVisualizer: React.FC = () => {
   const handleEntitySelected = (entity: CesiumEntity | undefined) => {
     if (entity) {
       setSelectedSatellite(entity.name || null);
+      const satellite = satellites.find(s => s.name === entity.name);
+      if (satellite) {
+        drawOrbit(satellite.tle);
+      }
     } else {
       setSelectedSatellite(null);
+      if (orbitPointsDrawer) orbitPointsDrawer.twoLineElement = null;
+      if (orbitPolylineDrawer) orbitPolylineDrawer.twoLineElement = null;
     }
+  };
+
+  // Add drawOrbit function
+  const drawOrbit = (_twoLineElement: any) => {
+    if (orbitPointsDrawer) orbitPointsDrawer.twoLineElement = _twoLineElement;
+    if (orbitPolylineDrawer) orbitPolylineDrawer.twoLineElement = _twoLineElement;
   };
 
   return (
@@ -265,6 +335,7 @@ const SatelliteVisualizer: React.FC = () => {
         navigationInstructionsInitiallyVisible={false}
         ref={viewerRef}
         onSelectedEntityChange={handleEntitySelected}
+        shouldAnimate={true}
       >
         {satellites.map((satellite) => {
           const isSelected = selectedSatellite === satellite.name;
@@ -298,12 +369,51 @@ const SatelliteVisualizer: React.FC = () => {
                 }}
               />
               {isSelected && selectedSatellitePath.length > 0 && (
+                <>
+                  <Entity
+                    name={`${satellite.name}_orbit_path`}
+                    polyline={{
+                      positions: selectedSatellitePath,
+                      width: 2,
+                      material: new PolylineGlowMaterialProperty({
+                        glowPower: 0.25,
+                        color: Color.CYAN.withAlpha(0.8)
+                      }),
+                      clampToGround: false
+                    }}
+                  />
+                  <Entity
+                    name={`${satellite.name}_orbit_points`}
+                    polyline={{
+                      positions: selectedSatellitePath,
+                      width: 1,
+                      material: new PolylineDashMaterialProperty({
+                        color: Color.WHITE.withAlpha(0.6),
+                        dashLength: 16.0
+                      }),
+                      clampToGround: false
+                    }}
+                  />
+                </>
+              )}
+              {orbitPointsDrawer?.twoLineElement && orbitPointsDrawer.twoLineElement === satellite.tle && (
                 <Entity
-                  name={`${satellite.name}_path`}
+                  name={`${satellite.name}_orbit_points`}
+                  polyline={{
+                    positions: selectedSatellitePath,
+                    width: 1,
+                    material: Color.CYAN.withAlpha(0.6),
+                    clampToGround: false
+                  }}
+                />
+              )}
+              {orbitPolylineDrawer?.twoLineElement && orbitPolylineDrawer.twoLineElement === satellite.tle && (
+                <Entity
+                  name={`${satellite.name}_orbit_polyline`}
                   polyline={{
                     positions: selectedSatellitePath,
                     width: 2,
-                    material: Color.YELLOW.withAlpha(0.8),
+                    material: Color.WHITE.withAlpha(0.4),
                     clampToGround: false
                   }}
                 />
