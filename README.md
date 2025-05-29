@@ -1,95 +1,70 @@
-# Conjunction Analysis System (CAS)
+# Satellite Conjunction Analysis and Visualization
 
-A system for analyzing potential satellite conjunctions using Two-Line Element (TLE) data and machine learning.
+This project provides a full-stack application for satellite conjunction analysis and visualization. It consists of a Python backend for conjunction analysis and a React frontend for 3D visualization using Cesium.
 
-## Features
+## Project Structure
 
-- TLE data processing and validation
-- Satellite conjunction prediction
-- Machine learning-based risk assessment
-- Distance and probability calculations
-- Progress tracking and detailed reporting
-
-## Requirements
-
-- Python 3.8+
-- Required packages:
-  - pandas
-  - numpy
-  - scikit-learn
-  - joblib
-  - tqdm
-  - orekit
-  - hipparchus
-
-## Installation
-
-1. Clone the repository:
-```bash
-git clone https://github.com/yourusername/CAS.git
-cd CAS
+```
+.
+├── app.py              # FastAPI backend server
+├── main.py            # Main analysis script
+├── requirements.txt   # Combined Python and Node.js dependencies
+├── frontend/
+│   └── src/
+│       └── App.js
+├── data/
+└── models/
 ```
 
-2. Create and activate a virtual environment:
+## Setup Instructions
+
+1. Create a Python virtual environment:
 ```bash
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-3. Install dependencies:
+2. Install Python dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-## Usage
-
-1. Prepare your TLE data:
-   - Place your satellite TLEs in `data/user_tle.csv` (format: Name,TLE1,TLE2)
-   - Ensure `data/tle_data.csv` contains the database of satellites to compare against
-
-2. Run the analysis:
+3. Install Node.js dependencies:
 ```bash
-python main.py
+cd frontend
+npm install
 ```
 
-The script will:
-- Check TLE data freshness
-- Check model freshness
-- Compare your satellites with the database
-- Generate predictions and save them to `data/predictions.csv`
-
-## File Structure
-
-```
-CAS/
-├── data/                   # Data directory (ignored by git)
-│   ├── user_tle.csv       # User's satellite TLEs
-│   ├── tle_data.csv       # Database of satellite TLEs
-│   └── predictions.csv    # Generated predictions
-├── models/                 # Trained models
-│   ├── conjunction_model.pkl
-│   └── conjunction_model_scaler.pkl
-├── main.py                # Main script
-├── predict_from_tle.py    # Prediction functions
-├── requirements.txt       # Python dependencies
-└── README.md             # This file
+4. Start the backend server (in one terminal):
+```bash
+python app.py
 ```
 
-## Output
+5. Start the frontend development server (in another terminal):
+```bash
+cd frontend
+npm start
+```
 
-The system generates:
-- Distance measurements between satellites
-- Risk assessments
-- Collision probabilities
-- Detailed reports of potential conjunctions
+The backend server will run on http://localhost:8000 and the frontend will run on http://localhost:3000
 
-## Notes
+## Features
 
-- TLE data should be updated regularly (less than 24 hours old)
-- Models are retrained weekly
-- Data files are ignored by git to keep repository size manageable
-- Models are included in the repository for reproducibility
+- Upload TLE data for user satellites
+- Visualize satellites in 3D using Cesium
+- Run conjunction analysis
+- Real-time progress tracking
+- Display analysis results
 
-## License
+## API Endpoints
 
-This project is licensed under the MIT License - see the LICENSE file for details. 
+- `POST /api/upload-tle`: Upload TLE data for a satellite
+- `POST /api/start-analysis`: Start conjunction analysis
+- `GET /api/analysis-status`: Get current analysis status
+- `GET /api/satellites`: Get list of all satellites
+
+## Dependencies
+
+All dependencies are listed in the root `requirements.txt` file, including:
+- Python packages (FastAPI, Pandas, NumPy, Orekit, etc.)
+- Node.js packages (React, Cesium, Material-UI, etc.) 
