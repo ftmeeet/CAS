@@ -13,6 +13,7 @@ from typing import List, Dict
 import asyncio
 import signal
 import sys
+from convert_tle import convert_csv_to_js
 
 # Suppress all warnings
 warnings.filterwarnings('ignore')
@@ -40,6 +41,11 @@ analysis_status = {
 # Global variable to store the current analysis task
 current_analysis_task = None
 
+def restart_server():
+    """Restart the server by spawning a new process and exiting the current one"""
+    python = sys.executable
+    os.execl(python, python, *sys.argv)
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize necessary directories and check data freshness on startup"""
@@ -47,12 +53,18 @@ async def startup_event():
         # Create necessary directories
         os.makedirs('data', exist_ok=True)
         os.makedirs('models', exist_ok=True)
+        os.makedirs('satellite-tracker/data', exist_ok=True)
         
         # Check and update TLE data if needed
         if not check_tle_freshness():
             print("TLE data is stale or missing. Fetching new data...")
             fetch_and_save_tle_data()
             print("TLE data updated successfully.")
+            
+        # Convert TLE data to JS format
+        print("Converting TLE data to JS format...")
+        convert_csv_to_js()
+        print("TLE data conversion completed successfully.")
             
         # Check and retrain model if needed
         if not check_model_freshness():
@@ -91,7 +103,7 @@ async def run_conjunction_analysis():
                 raise Exception("Analysis stopped by user")
                 
             analysis_status["message"] = "Updating TLE data..."
-            analysis_status["progress"] =5
+            analysis_status["progress"] = 5
             await asyncio.sleep(0.1)
             fetch_and_save_tle_data()
             analysis_status["progress"] = 10
@@ -142,16 +154,22 @@ async def run_conjunction_analysis():
             threshold_km=100
         )
         
-        analysis_status["progress"] = 100
-        analysis_status["message"] = "Analysis complete!"
-        await asyncio.sleep(0.1)
+        if not analysis_status["should_stop"]:
+            analysis_status["progress"] = 100
+            analysis_status["message"] = "Analysis complete!"
+            await asyncio.sleep(0.1)
 
+    except asyncio.CancelledError:
+        analysis_status["message"] = "Analysis cancelled"
+        analysis_status["progress"] = 0
+        raise
     except Exception as e:
         if "stopped by user" in str(e):
             analysis_status["message"] = "Analysis stopped by user"
         else:
             analysis_status["message"] = f"Error: {str(e)}"
         analysis_status["progress"] = 0
+        raise
     finally:
         analysis_status["is_running"] = False
         analysis_status["should_stop"] = False
@@ -168,13 +186,12 @@ async def start_analysis(background_tasks: BackgroundTasks):
     
     # Create and store the task
     current_analysis_task = asyncio.create_task(run_conjunction_analysis())
-    background_tasks.add_task(run_conjunction_analysis)
     return {"message": "Analysis started"}
 
 @app.post("/api/stop-analysis")
 async def stop_analysis():
-    """Stop the running conjunction analysis"""
-    global current_analysis_task
+    """Stop the running conjunction analysis and restart the server"""
+    global current_analysis_task, analysis_status
     
     if not analysis_status["is_running"]:
         raise HTTPException(status_code=400, detail="No analysis is currently running")
@@ -189,8 +206,22 @@ async def stop_analysis():
             await current_analysis_task
         except asyncio.CancelledError:
             pass
+        except Exception as e:
+            print(f"Error while stopping analysis: {e}")
     
-    return {"message": "Stopping analysis..."}
+    # Reset analysis status
+    analysis_status = {
+        "is_running": False,
+        "progress": 0,
+        "message": "Analysis stopped by user",
+        "should_stop": False
+    }
+    
+    # Schedule server restart
+    asyncio.create_task(asyncio.sleep(1))  # Give time for response to be sent
+    restart_server()
+    
+    return {"message": "Analysis stopped and server restarting..."}
 
 @app.get("/api/analysis-status")
 async def get_analysis_status():
