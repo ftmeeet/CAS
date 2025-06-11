@@ -14,6 +14,8 @@ import asyncio
 import signal
 import sys
 from convert_tle import convert_csv_to_js
+import multiprocessing
+from multiprocessing import Process, Event
 
 # Suppress all warnings
 warnings.filterwarnings('ignore')
@@ -38,51 +40,33 @@ analysis_status = {
     "should_stop": False
 }
 
-# Global variable to store the current analysis task
-current_analysis_task = None
+# Global variable to store the current analysis process
+current_analysis_process = None
+stop_event = None
 
 def restart_server():
     """Restart the server by spawning a new process and exiting the current one"""
     python = sys.executable
     os.execl(python, python, *sys.argv)
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize necessary directories and check data freshness on startup"""
+def run_tle_processing(stop_event, analysis_status):
+    """Run TLE processing in a separate process"""
     try:
-        # Create necessary directories
-        os.makedirs('data', exist_ok=True)
-        os.makedirs('models', exist_ok=True)
-        os.makedirs('satellite-tracker/data', exist_ok=True)
-        
-        # Check and update TLE data if needed
-        if not check_tle_freshness():
-            print("TLE data is stale or missing. Fetching new data...")
-            fetch_and_save_tle_data()
-            print("TLE data updated successfully.")
-            
-        # Convert TLE data to JS format
-        print("Converting TLE data to JS format...")
-        convert_csv_to_js()
-        print("TLE data conversion completed successfully.")
-            
-        # Check and retrain model if needed
-        if not check_model_freshness():
-            print("Model is stale or missing. Training new model...")
-            train_and_save_model()
-            print("Model trained successfully.")
-
-        # Update space weather data
-        print("Updating space weather data...")
-        get_latest_space_weather_data()
-        print("Space weather data updated successfully.")
-            
+        process_tle_file(
+            'data/user_tle.csv',
+            'data/tle_data.csv',
+            'models/conjunction_model.pkl',
+            100,
+            analysis_status
+        )
     except Exception as e:
-        print(f"Error during startup: {e}")
+        print(f"Error in TLE processing: {e}")
+    finally:
+        stop_event.set()
 
 async def run_conjunction_analysis():
     """Background task to run conjunction analysis"""
-    global analysis_status, current_analysis_task
+    global analysis_status, current_analysis_process, stop_event
     try:
         analysis_status["is_running"] = True
         analysis_status["progress"] = 0
@@ -147,12 +131,24 @@ async def run_conjunction_analysis():
         analysis_status["progress"] = 30
         await asyncio.sleep(0.1)
         
-        process_tle_file(
-            user_tle_file='data/user_tle.csv',
-            tle_data_file='data/tle_data.csv',
-            model_path='models/conjunction_model.pkl',
-            threshold_km=100
+        # Create a stop event for the process
+        stop_event = Event()
+        
+        # Start TLE processing in a separate process
+        current_analysis_process = Process(
+            target=run_tle_processing,
+            args=(stop_event, analysis_status)
         )
+        current_analysis_process.start()
+        
+        # Wait for the process to complete or be stopped
+        while current_analysis_process.is_alive():
+            if analysis_status["should_stop"]:
+                stop_event.set()
+                current_analysis_process.terminate()
+                current_analysis_process.join()
+                raise Exception("Analysis stopped by user")
+            await asyncio.sleep(0.1)
         
         if not analysis_status["should_stop"]:
             analysis_status["progress"] = 100
@@ -171,15 +167,19 @@ async def run_conjunction_analysis():
         analysis_status["progress"] = 0
         raise
     finally:
+        if current_analysis_process and current_analysis_process.is_alive():
+            current_analysis_process.terminate()
+            current_analysis_process.join()
         analysis_status["is_running"] = False
         analysis_status["should_stop"] = False
-        current_analysis_task = None
+        current_analysis_process = None
+        stop_event = None
         await asyncio.sleep(0.1)  # Allow final status to be processed
 
 @app.post("/api/start-analysis")
 async def start_analysis(background_tasks: BackgroundTasks):
     """Start conjunction analysis"""
-    global current_analysis_task
+    global current_analysis_process
     
     if analysis_status["is_running"]:
         raise HTTPException(status_code=400, detail="Analysis already running")
@@ -191,7 +191,7 @@ async def start_analysis(background_tasks: BackgroundTasks):
 @app.post("/api/stop-analysis")
 async def stop_analysis():
     """Stop the running conjunction analysis and restart the server"""
-    global current_analysis_task, analysis_status
+    global current_analysis_process, analysis_status, stop_event
     
     if not analysis_status["is_running"]:
         raise HTTPException(status_code=400, detail="No analysis is currently running")
@@ -199,15 +199,14 @@ async def stop_analysis():
     # Set the stop flag
     analysis_status["should_stop"] = True
     
-    # Cancel the current task if it exists
-    if current_analysis_task and not current_analysis_task.done():
-        current_analysis_task.cancel()
-        try:
-            await current_analysis_task
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            print(f"Error while stopping analysis: {e}")
+    # Signal the process to stop if it exists
+    if stop_event:
+        stop_event.set()
+    
+    # Terminate the process if it's still running
+    if current_analysis_process and current_analysis_process.is_alive():
+        current_analysis_process.terminate()
+        current_analysis_process.join()
     
     # Reset analysis status
     analysis_status = {
@@ -259,6 +258,85 @@ async def get_conjunctions():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/analysis-results")
+async def get_analysis_results():
+    """Get the results of the last analysis"""
+    try:
+        # Read the predictions file
+        results_file = 'data/predictions.csv'
+        
+        # Create data directory if it doesn't exist
+        os.makedirs('data', exist_ok=True)
+        
+        if not os.path.exists(results_file):
+            # Return empty results instead of 404
+            return {
+                "total_pairs": 0,
+                "successful_predictions": 0,
+                "threshold_km": 100,
+                "potential_conjunctions": 0,
+                "avg_distance": 0,
+                "min_distance": 0,
+                "max_distance": 0,
+                "avg_velocity": 0,
+                "max_velocity": 0,
+                "avg_risk": 0,
+                "avg_probability": 0,
+                "high_risk_pairs": 0,
+                "medium_risk_pairs": 0,
+                "low_risk_pairs": 0,
+                "conjunctions": []
+            }
+            
+        df = pd.read_csv(results_file)
+        
+        # Calculate summary statistics
+        total_pairs = len(df)
+        successful_predictions = len(df)
+        potential_conjunctions = sum(df['Prediction'])
+        
+        # Distance statistics
+        avg_distance = df['Actual_Distance_km'].mean()
+        min_distance = df['Actual_Distance_km'].min()
+        max_distance = df['Actual_Distance_km'].max()
+        
+        # Velocity statistics
+        valid_velocities = df['Relative_Velocity_km_s'].dropna()
+        avg_velocity = valid_velocities.mean() if not valid_velocities.empty else 0
+        max_velocity = valid_velocities.max() if not valid_velocities.empty else 0
+        
+        # Risk statistics
+        avg_risk = df['Risk_Value'].mean()
+        avg_probability = df['Collision_Probability'].mean()
+        high_risk_pairs = sum(df['Risk_Level'] == 'High')
+        medium_risk_pairs = sum(df['Risk_Level'] == 'Medium')
+        low_risk_pairs = sum(df['Risk_Level'] == 'Low')
+        
+        # Get potential conjunctions
+        conjunctions = df[df['Prediction'] == 1].to_dict('records')
+        
+        return {
+            "total_pairs": total_pairs,
+            "successful_predictions": successful_predictions,
+            "threshold_km": 100,  # This should match the threshold used in process_tle_file
+            "potential_conjunctions": potential_conjunctions,
+            "avg_distance": avg_distance,
+            "min_distance": min_distance,
+            "max_distance": max_distance,
+            "avg_velocity": avg_velocity,
+            "max_velocity": max_velocity,
+            "avg_risk": avg_risk,
+            "avg_probability": avg_probability,
+            "high_risk_pairs": high_risk_pairs,
+            "medium_risk_pairs": medium_risk_pairs,
+            "low_risk_pairs": low_risk_pairs,
+            "conjunctions": conjunctions
+        }
+        
+    except Exception as e:
+        print(f"Error in get_analysis_results: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 def check_tle_freshness(tle_file='data/tle_data.csv', max_age_hours=24):
     """
     Check if TLE data is fresh enough.
@@ -296,3 +374,9 @@ def check_model_freshness(model_file='models/conjunction_model.pkl', max_age_day
     age_days = (datetime.now() - file_time).days
     
     return age_days <= max_age_days
+
+if __name__ == "__main__":
+    import uvicorn
+    print("Starting CAS backend server...")
+    print("Server will be available at http://localhost:8000")
+    uvicorn.run(app, host="0.0.0.0", port=8000)

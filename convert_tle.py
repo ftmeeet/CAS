@@ -15,7 +15,7 @@ def convert_csv_to_js():
                 data.extend([row[0], row[1], row[2]])
     
     # Create the JavaScript file
-    with open('satellite-tracker/data/tle_data.js', 'w') as js_file:
+    with open('frontend/data/tle_data.js', 'w') as js_file:
         # Write the data array
         js_file.write('const data = [\n')
         # Write each value with proper formatting
@@ -40,7 +40,7 @@ def convert_csv_to_js():
                 data.extend([row[0], row[1], row[2]])
     
     # Create the JavaScript file
-    with open('satellite-tracker/data/user_tle.js', 'w') as js_file:
+    with open('frontend/data/user_tle.js', 'w') as js_file:
         # Write the data array
         js_file.write('const data = [\n')
         # Write each value with proper formatting

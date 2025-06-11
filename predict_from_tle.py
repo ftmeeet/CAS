@@ -201,7 +201,7 @@ def predict_from_tle(tle1, tle2, model_path='models/conjunction_model.pkl', thre
         print(f"Error in prediction: {e}")
         return None, None, None, None, None, None
 
-def process_tle_file(user_tle_file='data/user_tle.csv', tle_data_file='data/tle_data.csv', model_path='models/conjunction_model.pkl', threshold_km=10):
+def process_tle_file(user_tle_file='data/user_tle.csv', tle_data_file='data/tle_data.csv', model_path='models/conjunction_model.pkl', threshold_km=10, analysis_status=None):
     """
     Process TLE pairs between user satellites and database satellites.
     
@@ -210,6 +210,7 @@ def process_tle_file(user_tle_file='data/user_tle.csv', tle_data_file='data/tle_
         tle_data_file (str): Path to the TLE database file (format: Name,TLE1,TLE2)
         model_path (str): Path to the trained model
         threshold_km (float): Distance threshold in kilometers for conjunction detection
+        analysis_status (dict): Dictionary containing analysis status and control flags
     """
     try:
         # Ensure threshold_km is a float
@@ -230,11 +231,22 @@ def process_tle_file(user_tle_file='data/user_tle.csv', tle_data_file='data/tle_
         # Process all pairs
         results = []
         total_pairs = len(user_df) * len(db_df)
+        processed_pairs = 0
         
         print(f"Processing {total_pairs} pairs...")
         with tqdm(total=total_pairs, desc="Processing satellite pairs", unit="pair") as pbar:
             for i in range(len(user_df)):
+                # Check for stop flag every user satellite
+                if analysis_status and analysis_status.get("should_stop", False):
+                    print("\nAnalysis stopped by user")
+                    return
+                    
                 for j in range(len(db_df)):
+                    # Check for stop flag every 10 database satellites
+                    if j % 10 == 0 and analysis_status and analysis_status.get("should_stop", False):
+                        print("\nAnalysis stopped by user")
+                        return
+                        
                     tle1 = f"{user_df.iloc[i]['TLE1']}\n{user_df.iloc[i]['TLE2']}"
                     tle2 = f"{db_df.iloc[j]['TLE1']}\n{db_df.iloc[j]['TLE2']}"
                     
@@ -255,14 +267,30 @@ def process_tle_file(user_tle_file='data/user_tle.csv', tle_data_file='data/tle_
                             'Relative_Velocity_km_s': float(relative_velocity) if relative_velocity is not None else None
                         })
                     
+                    processed_pairs += 1
                     pbar.update(1)
+                    
+                    # Update progress in analysis_status
+                    if analysis_status:
+                        progress = int((processed_pairs / total_pairs) * 70) + 30  # Scale from 30% to 100%
+                        analysis_status["progress"] = progress
+                        analysis_status["message"] = f"Processing TLE data... ({processed_pairs}/{total_pairs} pairs)"
         
         # Save results to CSV
         results_df = pd.DataFrame(results)
+        
+        # Save to current analysis file
         output_file = 'data/predictions.csv'
         results_df.to_csv(output_file, index=False)
-        
         print(f"\nPredictions saved to {output_file}")
+        
+        # Save to timestamped file in Predictions folder
+        os.makedirs('Predictions', exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        predictions_file = f'Predictions/predictions_{timestamp}.csv'
+        results_df.to_csv(predictions_file, index=False)
+        print(f"Predictions saved to {predictions_file}")
+        
         print(f"Total pairs processed: {total_pairs}")
         print(f"Successful predictions: {len(results)}")
         
