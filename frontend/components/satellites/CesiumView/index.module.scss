@@ -1,0 +1,52 @@
+@import "@/styles";
+
+.content {
+  width: 100vw;
+  height: 100vh;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.utils {
+  position: absolute;
+  top: 20px;
+  left: 133px;
+  z-index: 1;
+
+  button {
+    background-color: transparent;
+    padding: 0;
+    margin: 0 3px;
+    height: 30px;
+    width: 38px;
+
+    .icon {
+      color: white;
+      height: inherit;
+      width: inherit;
+    }
+
+    &:hover {
+      .icon {
+        color: rgba(white, 0.9);
+      }
+    }
+  }
+
+  @include respond-to(max-width, 768px) {
+    left: 107px;
+
+    button {
+      height: 24px;
+      width: 30px;
+    }
+  }
+}
+
+.analysisControlsContainer {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 1000;
+}

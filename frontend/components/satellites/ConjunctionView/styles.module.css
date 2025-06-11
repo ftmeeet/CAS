@@ -1,0 +1,215 @@
+.container {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 15px;
+  border-radius: 8px;
+  max-width: 400px;
+  max-height: 80vh;
+  overflow-y: auto;
+  z-index: 1000;
+}
+
+.container h3 {
+  margin: 0 0 15px 0;
+  color: #ff4444;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.conjunctionList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.conjunctionItem {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 10px;
+  border-radius: 4px;
+  border-left: 3px solid #ff4444;
+  transition: all 0.3s ease;
+}
+
+.conjunctionItem:hover {
+  transform: translateX(-5px);
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.conjunctionItem.highRisk {
+  border-left-color: #ff0000;
+  background: rgba(255, 0, 0, 0.1);
+}
+
+.conjunctionItem.mediumRisk {
+  border-left-color: #ffa500;
+  background: rgba(255, 165, 0, 0.1);
+}
+
+.conjunctionItem.lowRisk {
+  border-left-color: #00ff00;
+  background: rgba(0, 255, 0, 0.1);
+}
+
+.satellites {
+  font-weight: bold;
+  margin-bottom: 8px;
+  color: #ff4444;
+}
+
+.details {
+  font-size: 0.9em;
+  display: grid;
+  gap: 4px;
+}
+
+.riskIndicator {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.8em;
+  font-weight: bold;
+  margin-left: 8px;
+}
+
+.highRisk .riskIndicator {
+  background: #ff0000;
+  color: white;
+}
+
+.mediumRisk .riskIndicator {
+  background: #ffa500;
+  color: black;
+}
+
+.lowRisk .riskIndicator {
+  background: #00ff00;
+  color: black;
+}
+
+.loading {
+  color: white;
+  padding: 20px;
+  text-align: center;
+}
+
+.error {
+  color: #ff4444;
+  padding: 20px;
+  text-align: center;
+}
+
+/* Dialog styles */
+.dialogOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000;
+  backdrop-filter: blur(5px);
+}
+
+.dialog {
+  background: rgba(0, 0, 0, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 20px;
+  width: 90%;
+  max-width: 500px;
+  color: white;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.dialogHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.dialogHeader h3 {
+  margin: 0;
+  color: #ff4444;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.closeButton {
+  background: none;
+  border: none;
+  color: white;
+  cursor: pointer;
+  padding: 5px;
+  font-size: 1.2em;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.closeButton:hover {
+  opacity: 1;
+}
+
+.dialogContent {
+  margin-bottom: 20px;
+}
+
+.dialogContent h4 {
+  margin: 0 0 15px 0;
+  color: #ff4444;
+}
+
+.summary {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 15px;
+  border-radius: 4px;
+  margin-bottom: 20px;
+}
+
+.summary p {
+  margin: 8px 0;
+  display: flex;
+  justify-content: space-between;
+}
+
+.summary .highRisk {
+  color: #ff0000;
+}
+
+.summary .mediumRisk {
+  color: #ffa500;
+}
+
+.summary .lowRisk {
+  color: #00ff00;
+}
+
+.dialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.viewDetailsButton {
+  background: #ff4444;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.viewDetailsButton:hover {
+  background: #ff0000;
+} 
